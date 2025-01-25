@@ -1,152 +1,101 @@
-# Terminal Plugin Development Guide
+# Terminal
 
-## Создание плагина
+Многофункциональный терминал с поддержкой плагинов, тем оформления и расширенными возможностями для работы.
 
-### Основной класс плагина
+## Возможности
 
-```java
-public class YourPlugin implements TerminalPlugin {
-    @Override
-    public void initialize() {
-        // Инициализация плагина
-    }
+### Основные функции
 
-    @Override
-    public void shutdown() {
-        // Очистка ресурсов при выключении
-    }
+- Многооконный интерфейс с поддержкой разделения экрана
+- Автодополнение команд и путей
+- История команд
+- Поддержка UTF-8
+- Настраиваемые цветовые темы
+- Система плагинов
 
-    @Override
-    public String getName() {
-        return "YourPlugin";
-    }
+### Встроенные команды
 
-    @Override
-    public String getDescription() {
-        return "Описание вашего плагина";
-    }
+- **Файловые операции**: ls, cd, pwd, mkdir, rmdir, rm, cat, touch, nano
+- **Сетевые инструменты**: ping, netstat, trace, dns, nmap, portscan, wifi, web, con
+- **Системные команды**: ps, sys, procanalyze, cls
+- **Утилиты**: grep, find, zip/unzip, split, reverse
+- **Инструменты безопасности**: hash, crypto
+- **Управление**: theme, plugins, clear, exit
+- **Редактирование**: nano, split
 
-    @Override
-    public String getVersion() {
-        return "1.0";
-    }
+### Плагины
 
-    @Override
-    public String getAuthor() {
-        return "Ваше имя";
-    }
+- **Notes**: Создание и управление заметками
+- **STheme**: Управление темами оформления
 
-    @Override
-    public Map<String, Command> getCommands() {
-        Map<String, Command> commands = new HashMap<>();
-        // Регистрация команд плагина
-        return commands;
-    }
-}
+## Установка
+
+1. Будет позже
+
+## Использование
+
+### Базовые команды
+
+```bash
+# Просмотр доступных команд
+help
+
+# Информация о системе
+sys info
+
+# Список файлов
+ls [путь]
+
+# Работа с директориями
+mkdir директория
+cd путь
+pwd
+
+# Просмотр файлов
+cat файл
 ```
 
-### Создание команды
+### Работа с темами
 
-```java
-public class YourCommand extends AbstractCommand {
-    public YourCommand(StyledDocument doc, Style style) {
-        super(doc, style);
-    }
+```bash
+# Список доступных тем
+theme list
 
-    @Override
-    protected void initializeSubCommands() {
-        addSubCommand("subcommand", "описание подкоманды");
-    }
-
-    @Override
-    public void execute(String... args) {
-        // Реализация команды
-    }
-
-    @Override
-    public String getDescription() {
-        return "Описание команды";
-    }
-}
+# Установка темы
+theme set <имя_темы>
 ```
 
-## Создание тем
+### Управление плагинами
 
-### Структура темы
+```bash
+# Список установленных плагинов
+plugins list
 
-```json
-{
-  "version": "1.0",
-  "author": "Ваше имя",
-  "colors": {
-    "background": "#1E1E1E",
-    "foreground": "#D4D4D4",
-    "selection": "#264F78",
-    "cursor": "#FFFFFF",
-    "error": "#F14C4C",
-    "success": "#89D185",
-    "warning": "#CCA700",
-    "info": "#75BEFF",
-    "username": "#4EC9B0",
-    "directory": "#DCDCAA",
-    "suggestion": "#808080",
-    "prompt": "#608B4E"
-  },
-  "fonts": {
-    "primary": "Consolas",
-    "size": 14,
-    "lineHeight": 1.5
-  },
-  "spacing": {
-    "padding": 8,
-    "margin": 4
-  }
-}
+# Информация о плагине
+plugins info <имя_плагина>
 ```
 
-### Использование ThemeBuilder
+## Настройка
 
-```java
-String myTheme = new ThemeBuilder()
-    .setAuthor("Ваше имя")
-    .setBackground("#000000")
-    .setForeground("#FFFFFF")
-    .setSelection("#404040")
-    .setCursor("#FFFFFF")
-    .setError("#FF0000")
-    .setSuccess("#00FF00")
-    .setWarning("#FFFF00")
-    .setInfo("#0000FF")
-    .setUsername("#FF00FF")
-    .setDirectory("#00FFFF")
-    .setSuggestion("#808080")
-    .setPrompt("#00FF00")
-    .build();
+### Файлы конфигурации
 
-// Регистрация темы
-ThemeManager.getInstance().registerPluginTheme("My Theme", myTheme);
-```
+- `content/user.json` - пользовательские настройки
+- `content/themes.json` - настройки тем
+- `content/plugins/` - директория плагинов
 
-### Команды для работы с темами
+### Горячие клавиши
 
-- `theme list` - показать список доступных тем
-- `theme set <имя>` - установить тему
-- `theme current` - показать текущую тему
+- `↑/↓` - навигация по истории команд
+- `Tab` - автодополнение
+- `Ctrl+D` - выход из режима редактирования
 
-## События
+## Системные требования
 
-Плагины могут подписываться на события терминала:
+- Java Runtime Environment 8 или выше
+- Операционная система: Windows, Linux, macOS
+- Оперативная память: минимум 256 MB
+- Свободное место на диске: минимум 100 MB
 
-```java
-EventManager.getInstance().subscribe(TerminalEvent.EventType.THEME_CHANGED, event -> {
-    // Обработка события смены темы
-});
-```
+## Лицензия
 
-Доступные типы событий:
-
-- `STATE_CHANGED` - изменение состояния терминала
-- `COMMAND_COMPLETED` - команда успешно выполнена
-- `COMMAND_FAILED` - ошибка при выполнении команды
-- `OUTPUT_UPDATED` - обновлен вывод в терминале
-- `THEME_CHANGED` - изменена тема оформления
+MIT License
