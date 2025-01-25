@@ -1,0 +1,54 @@
+# Скомпилированные файлы
+*.class
+*.jar
+!lib/*.jar
+/plugins/
+!content/plugins/*.jar
+
+# Директории сборки
+/target/
+/build/
+/out/
+/bin/
+
+# Файлы IDE
+.idea/
+*.iml
+*.iws
+*.ipr
+.settings/
+.classpath
+.project
+.vscode/
+
+# Логи и временные файлы
+*.log
+logs.txt
+*.tmp
+*.temp
+*.swp
+*~
+tasks.txt
+
+# Файлы операционной системы
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Файлы конфигурации
+content/user.json
+
+# Директории плагинов и тем
+content/plugins/*
+!content/plugins/README.md
+!content/plugins/*.jar
+
+# Файлы Maven
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+pom.xml.next
+release.properties
+dependency-reduced-pom.xml
+buildNumber.properties
+.mvn/timing.properties
