@@ -10,19 +10,21 @@ public class TerminalFrame extends JFrame {
     private static final int WIDTH = 800;
     private static final int HEIGHT = 600;
     private static final String DEFAULT_TITLE = "Терминал";
+    private final String version;
     
     private final JSplitPane mainSplitPane;
     private final List<TerminalPanel> terminalPanels;
     private TerminalPanel activePanel;
 
-    public TerminalFrame() {
+    public TerminalFrame(String version) {
         setTitle(DEFAULT_TITLE);
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setExtendedState(JFrame.MAXIMIZED_BOTH);
+        this.version = version;
         
         terminalPanels = new ArrayList<>();
         
-        TerminalPanel firstPanel = new TerminalPanel(this);
+        TerminalPanel firstPanel = new TerminalPanel(this, version);
         activePanel = firstPanel;
         terminalPanels.add(firstPanel);
         
@@ -51,7 +53,7 @@ public class TerminalFrame extends JFrame {
     }
     
     public void splitVertically() {
-        TerminalPanel newPanel = new TerminalPanel(this);
+        TerminalPanel newPanel = new TerminalPanel(this, version);
         terminalPanels.add(newPanel);
         
         if (mainSplitPane.getRightComponent() == null) {
@@ -70,7 +72,7 @@ public class TerminalFrame extends JFrame {
     }
     
     public void splitHorizontally() {
-        TerminalPanel newPanel = new TerminalPanel(this);
+        TerminalPanel newPanel = new TerminalPanel(this, version);
         terminalPanels.add(newPanel);
         
         if (mainSplitPane.getRightComponent() == null) {

@@ -7,6 +7,8 @@ import java.awt.Font;
 import java.awt.Insets;
 import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
+import java.awt.event.MouseEvent;
+import java.awt.event.MouseListener;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -69,6 +71,7 @@ import com.terminal.sdk.EventType;
 import com.terminal.sdk.TerminalEvent;
 import com.terminal.utils.InputCallback;
 import com.terminal.utils.PluginManager;
+import com.terminal.utils.SidebarManager;
 import com.terminal.utils.ThemeManager;
 
 public class TerminalPanel extends JPanel implements CurrentPathHolder {
@@ -108,16 +111,23 @@ public class TerminalPanel extends JPanel implements CurrentPathHolder {
     private static final String BRANCH_SYMBOL = "";
     private static final int FONT_SIZE = 14;
     private static final int PADDING = 12;
+    private final SidebarManager sidebarManager;
 
-    public TerminalPanel(TerminalFrame frame) {
+    public TerminalPanel(TerminalFrame frame, String version) {
         this.frame = frame;
         setLayout(new BorderLayout());
+        
+        sidebarManager = new SidebarManager(this);
+        add(sidebarManager.getSidebarPanel(), BorderLayout.WEST);
         
         addFocusListener(new java.awt.event.FocusAdapter() {
             @Override
             public void focusGained(java.awt.event.FocusEvent evt) {
                 frame.setActivePanel(TerminalPanel.this);
                 setBorder(javax.swing.BorderFactory.createLineBorder(promptColor, 1));
+                if (textPane != null) {
+                    textPane.setCaretPosition(textPane.getDocument().getLength());
+                }
             }
             
             @Override
@@ -207,7 +217,7 @@ public class TerminalPanel extends JPanel implements CurrentPathHolder {
         historyIndex = -1;
         currentPath = System.getProperty("user.dir");
         
-        printWelcomeMessage();
+        printWelcomeMessage(version);
         initializeCommands();
         setupKeyListeners();
         displayPrompt();
@@ -247,6 +257,27 @@ public class TerminalPanel extends JPanel implements CurrentPathHolder {
         EventManager.getInstance().subscribe(EventType.THEME_CHANGED, this::handleThemeChanged);
         
         commands.putAll(PluginManager.getInstance().getPluginCommands());
+
+        textPane.addMouseListener(new MouseListener() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                if (!isInputMode && textPane.getCaretPosition() < userInputStart) {
+                    textPane.setCaretPosition(textPane.getDocument().getLength());
+                }
+            }
+
+            @Override
+            public void mousePressed(MouseEvent e) {}
+
+            @Override
+            public void mouseReleased(MouseEvent e) {}
+
+            @Override
+            public void mouseEntered(MouseEvent e) {}
+
+            @Override
+            public void mouseExited(MouseEvent e) {}
+        });
     }
 
     private void initializeCommands() {
@@ -302,8 +333,7 @@ public class TerminalPanel extends JPanel implements CurrentPathHolder {
         commands.put(name, new CommandInfo(name, command, category));
     }
 
-    private void printWelcomeMessage() {
-        String version = "2.1";
+    private void printWelcomeMessage(String version) {
         String banner = String.format(
             "╔══════════════════════════════════════════════════════════════╗\n" +
             "║                     Terminal v%-3s                            ║\n" +
@@ -331,6 +361,25 @@ public class TerminalPanel extends JPanel implements CurrentPathHolder {
                         e.consume();
                         finishInput();
                         return;
+                    }
+                }
+
+                if (!isInputMode) {
+                    int caretPosition = textPane.getCaretPosition();
+                    if (caretPosition < userInputStart) {
+                        e.consume();
+                        textPane.setCaretPosition(textPane.getDocument().getLength());
+                        return;
+                    }
+
+                    if (e.getKeyCode() == KeyEvent.VK_BACK_SPACE || 
+                        e.getKeyCode() == KeyEvent.VK_DELETE ||
+                        (e.getKeyCode() == KeyEvent.VK_A && e.isControlDown()) ||
+                        (e.getKeyCode() == KeyEvent.VK_X && e.isControlDown())) {
+                        if (textPane.getSelectionStart() < userInputStart) {
+                            e.consume();
+                            return;
+                        }
                     }
                 }
 
@@ -456,6 +505,8 @@ public class TerminalPanel extends JPanel implements CurrentPathHolder {
             if (!commandLine.isEmpty()) {
                 commandHistory.add(commandLine);
                 historyIndex = commandHistory.size();
+                
+                sidebarManager.addToHistory(commandLine);
                 
                 String[] parts = commandLine.trim().split("\\s+");
                 if (parts.length > 0) {
@@ -619,7 +670,6 @@ public class TerminalPanel extends JPanel implements CurrentPathHolder {
                 String[] parts = currentInput.split("\\s+");
                 String commandPart = parts[0].toLowerCase();
                 
-                // Если это существующая команда
                 CommandInfo commandInfo = commands.get(commandPart);
                 if (commandInfo != null) {
                     List<String> suggestions = commandInfo.getCommand().getSuggestions(
@@ -834,5 +884,24 @@ public class TerminalPanel extends JPanel implements CurrentPathHolder {
             return textPane.requestFocusInWindow();
         }
         return super.requestFocusInWindow();
+    }
+
+    public void addToFavorites(String command) {
+        sidebarManager.addToFavorites(command);
+    }
+
+    public void removeFromFavorites(String command) {
+        sidebarManager.removeFromFavorites(command);
+    }
+
+    public void insertCommand(String command) {
+        try {
+            StyledDocument doc = textPane.getStyledDocument();
+            doc.remove(userInputStart, doc.getLength() - userInputStart);
+            doc.insertString(userInputStart, command, promptStyle);
+            textPane.setCaretPosition(doc.getLength());
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
     }
 } 

@@ -23,7 +23,8 @@ public class Logger {
     public enum LogType {
         INFO("INFO"),
         ERROR("ERROR"),
-        WARNING("WARNING");
+        WARNING("WARNING"),
+        DEBUG("DEBUG");
 
         private final String value;
 
@@ -54,7 +55,6 @@ public class Logger {
         try (BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(
                 new FileOutputStream(LOG_FILE, true), StandardCharsets.UTF_8))) {
             writer.write(logMessage);
-            System.out.println(logMessage);
         } catch (IOException e) {
             System.err.println("Error writing to log file: " + e.getMessage());
         }
@@ -88,5 +88,15 @@ public class Logger {
      */
     public static void warning(String className, String message) {
         log(className, LogType.WARNING, message);
+    }
+
+    /**
+     * Записывает отладочное сообщение в лог.
+     *
+     * @param className имя класса, из которого производится логирование
+     * @param message текст отладочного сообщения
+     */
+    public static void debug(String className, String message) {
+        log(className, LogType.DEBUG, message);
     }
 } 

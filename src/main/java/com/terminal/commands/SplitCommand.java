@@ -31,19 +31,18 @@ public class SplitCommand extends AbstractCommand {
             case "vertical":
                 frame.splitVertically();
                 writeToOutput("Создано вертикальное разделение\n");
-                break;
+                return;
             case "h":
             case "horizontal":
                 frame.splitHorizontally();
                 writeToOutput("Создано горизонтальное разделение\n");
-                break;
+                return;
             case "close":
                 frame.closePanel(frame.getActivePanel());
                 writeToOutput("Панель закрыта\n");
-                break;
+                return;
             default:
                 printHelp();
-                break;
         }
     }
 

@@ -29,6 +29,7 @@ logs.txt
 *.swp
 *~
 tasks.txt
+content/data/*.json
 
 # Файлы операционной системы
 .DS_Store

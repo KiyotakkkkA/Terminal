@@ -1,8 +1,6 @@
 package com.terminal.utils;
 
 import java.io.File;
-import java.io.PrintStream;
-import java.io.UnsupportedEncodingException;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.util.ArrayList;
@@ -17,6 +15,7 @@ import com.terminal.sdk.CommandCategory;
 import com.terminal.sdk.CommandInfo;
 import com.terminal.sdk.EventManager;
 import com.terminal.sdk.EventType;
+import com.terminal.sdk.Logger;
 import com.terminal.sdk.TerminalEvent;
 import com.terminal.sdk.TerminalPlugin;
 
@@ -26,8 +25,6 @@ public class PluginManager {
     private final Map<String, CommandInfo> pluginCommands;
     private final Map<String, Map<String, Object>> pluginConfigs;
     private final String pluginsDirectory;
-    private final PrintStream out;
-
     private final String pluginsDir = "content/plugins";
 
     private PluginManager() {
@@ -35,11 +32,6 @@ public class PluginManager {
         this.pluginCommands = new HashMap<>();
         this.pluginConfigs = new HashMap<>();
         this.pluginsDirectory = "content/plugins";
-        try {
-            this.out = new PrintStream(System.out, true, "UTF-8");
-        } catch (UnsupportedEncodingException e) {
-            throw new RuntimeException("UTF-8 не поддерживается", e);
-        }
         createPluginsDirectory();
     }
 
@@ -59,38 +51,38 @@ public class PluginManager {
 
     public void loadPlugins() {
         File directory = new File(pluginsDirectory);
-        out.println("Searching for plugins in directory: " + directory.getAbsolutePath());
+        Logger.info(getClass().getSimpleName(), "Поиск плагинов в директории: " + directory.getAbsolutePath());
         
         File[] jarFiles = directory.listFiles((dir, name) -> name.endsWith(".jar"));
         
         if (jarFiles != null) {
-            out.println("Found JAR files: " + jarFiles.length);
+            Logger.info(getClass().getSimpleName(), "Найдено JAR файлов: " + jarFiles.length);
             for (File jar : jarFiles) {
                 try {
-                    out.println("Loading plugin from file: " + jar.getName());
+                    Logger.info(getClass().getSimpleName(), "Загрузка плагина из файла: " + jar.getName());
                     loadPlugin(jar);
-                    out.println("Plugin successfully loaded: " + jar.getName());
+                    Logger.info(getClass().getSimpleName(), "Плагин успешно загружен: " + jar.getName());
                 } catch (Exception e) {
-                    out.println("Error loading plugin " + jar.getName() + ": " + e.getMessage());
-                    e.printStackTrace(out);
+                    Logger.error(getClass().getSimpleName(), "Ошибка загрузки плагина " + jar.getName() + ": " + e.getMessage());
+                    e.printStackTrace();
                 }
             }
         } else {
-            out.println("Plugins directory is empty or does not exist");
+            Logger.warning(getClass().getSimpleName(), "Директория плагинов пуста или не существует");
         }
     }
 
     private void loadPlugin(File jarFile) throws Exception {
         try (JarFile jar = new JarFile(jarFile)) {
             URL[] urls = { new URL("jar:file:" + jarFile.getPath() + "!/") };
-            out.println("Plugin URL: " + urls[0]);
+            Logger.debug(getClass().getSimpleName(), "URL плагина: " + urls[0]);
             
             try (URLClassLoader loader = new URLClassLoader(urls, getClass().getClassLoader())) {
                 String mainClass = jar.getManifest().getMainAttributes().getValue("Plugin-Class");
-                out.println("Main plugin class: " + mainClass);
+                Logger.debug(getClass().getSimpleName(), "Основной класс плагина: " + mainClass);
                 
                 if (mainClass == null) {
-                    throw new Exception("Plugin-Class not specified in manifest");
+                    throw new Exception("Plugin-Class не указан в манифесте");
                 }
 
                 String pluginName = jarFile.getName().replace(".jar", "");
@@ -100,15 +92,15 @@ public class PluginManager {
                 }
 
                 Class<?> pluginClass = Class.forName(mainClass, true, loader);
-                out.println("Plugin class loaded: " + pluginClass.getName());
+                Logger.debug(getClass().getSimpleName(), "Класс плагина загружен: " + pluginClass.getName());
                 
                 TerminalPlugin plugin = (TerminalPlugin) pluginClass.getDeclaredConstructor().newInstance();
-                out.println("Plugin instance created: " + plugin.getName());
+                Logger.debug(getClass().getSimpleName(), "Экземпляр плагина создан: " + plugin.getName());
                 
                 try {
                     registerPlugin(plugin);
                 } catch (Exception e) {
-                    out.println("Error registering plugin " + plugin.getName() + ": " + e.getMessage());
+                    Logger.error(getClass().getSimpleName(), "Ошибка регистрации плагина " + plugin.getName() + ": " + e.getMessage());
                     plugin.onError(e);
                     throw e;
                 }
@@ -119,37 +111,25 @@ public class PluginManager {
     private void registerPlugin(TerminalPlugin plugin) {
         List<String> missingDependencies = checkDependencies(plugin);
         if (!missingDependencies.isEmpty()) {
-            throw new RuntimeException("Missing dependencies for plugin " + plugin.getName() + ": " + 
+            throw new RuntimeException("Отсутствуют зависимости для плагина " + plugin.getName() + ": " + 
                 String.join(", ", missingDependencies));
         }
 
         if (!plugin.isEnabled()) {
-            out.println("Plugin " + plugin.getName() + " is disabled, skipping...");
+            Logger.warning(getClass().getSimpleName(), "Плагин " + plugin.getName() + " отключен, пропускаем...");
             return;
         }
 
         plugins.put(plugin.getName(), plugin);
-        
         pluginConfigs.put(plugin.getName(), new HashMap<>(plugin.getDefaultConfig()));
-        
         plugin.initialize();
 
         Map<String, Command> commands = plugin.getCommands();
         for (Map.Entry<String, Command> entry : commands.entrySet()) {
             CommandInfo commandInfo = new CommandInfo(entry.getKey(), entry.getValue(), CommandCategory.PLUGIN);
             pluginCommands.put(entry.getKey(), commandInfo);
-            out.println("New command registered: " + entry.getKey());
+            Logger.info(getClass().getSimpleName(), "Зарегистрирована новая команда: " + entry.getKey());
         }
-
-        EventManager.getInstance().emit(
-            new TerminalEvent(EventType.STATE_CHANGED, 
-                String.format("Loaded plugin: %s v%s by %s - %s", 
-                    plugin.getName(), 
-                    plugin.getVersion(),
-                    plugin.getAuthor(),
-                    plugin.getDescription())
-            )
-        );
     }
 
     private List<String> checkDependencies(TerminalPlugin plugin) {
@@ -213,7 +193,7 @@ public class PluginManager {
             try {
                 plugin.shutdown();
             } catch (Exception e) {
-                out.println("Error shutting down plugin " + plugin.getName() + ": " + e.getMessage());
+                Logger.error(getClass().getSimpleName(), "Ошибка при выключении плагина " + plugin.getName() + ": " + e.getMessage());
             }
         }
         plugins.clear();
