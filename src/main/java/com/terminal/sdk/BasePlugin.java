@@ -43,7 +43,7 @@ public abstract class BasePlugin implements TerminalPlugin {
     
     @Override
     public Map<String, Command> getCommands() {
-        return commands;
+        return Collections.unmodifiableMap(commands);
     }
     
     @Override

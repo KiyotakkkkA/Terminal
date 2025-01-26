@@ -5,7 +5,7 @@ setlocal enabledelayedexpansion
 set SRC_DIR=src\main\java
 set BUILD_DIR=build\creationkit
 set JAR_FILE=lib\terminal-creation-kit.jar
-set TERMINAL_CORE=target\terminal-clone-1.0-SNAPSHOT.jar
+set TERMINAL_CORE=target\terminal-clone-1.2-ALPHA.jar
 set GSON_JAR=%USERPROFILE%\.m2\repository\com\google\code\gson\gson\2.10.1\gson-2.10.1.jar
 
 :: Создаем необходимые директории

@@ -11,7 +11,7 @@ import java.time.format.DateTimeFormatter;
 /**
  * Утилита для логирования событий в терминале.
  * Записывает логи в файл с поддержкой UTF-8 кодировки.
- * Поддерживает различные уровни логирования: INFO, ERROR, WARNING.
+ * Поддерживает различные уровни логирования: INFO, ERROR, WARNING, DEBUG.
  */
 public class Logger {
     private static final String LOG_FILE = "logs.txt";

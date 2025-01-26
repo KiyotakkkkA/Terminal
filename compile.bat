@@ -7,5 +7,5 @@ if errorlevel 1 (
 )
 echo Компиляция успешно завершена
 echo Запуск приложения...
-java -jar target/terminal-clone-1.0-SNAPSHOT-jar-with-dependencies.jar
+java -jar target/terminal-clone-1.2-ALPHA-jar-with-dependencies.jar
 pause 

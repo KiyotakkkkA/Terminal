@@ -21,6 +21,11 @@ public enum EventType {
     COMMAND_FAILED,
     
     /**
+     * Событие прерывания выполнения команды.
+     */
+    COMMAND_INTERRUPTED,
+    
+    /**
      * Событие обновления вывода в терминале.
      */
     OUTPUT_UPDATED,
@@ -33,5 +38,10 @@ public enum EventType {
     /**
      * Событие возникновения ошибки.
      */
-    ERROR_OCCURRED
+    ERROR_OCCURRED,
+    
+    /**
+     * Событие обновления кадра анимации.
+     */
+    ANIMATION_FRAME
 } 

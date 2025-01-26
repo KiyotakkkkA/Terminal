@@ -69,6 +69,7 @@ import com.terminal.sdk.CurrentPathHolder;
 import com.terminal.sdk.EventManager;
 import com.terminal.sdk.EventType;
 import com.terminal.sdk.TerminalEvent;
+import com.terminal.utils.BannerGenerator;
 import com.terminal.utils.InputCallback;
 import com.terminal.utils.PluginManager;
 import com.terminal.utils.SidebarManager;
@@ -125,9 +126,6 @@ public class TerminalPanel extends JPanel implements CurrentPathHolder {
             public void focusGained(java.awt.event.FocusEvent evt) {
                 frame.setActivePanel(TerminalPanel.this);
                 setBorder(javax.swing.BorderFactory.createLineBorder(promptColor, 1));
-                if (textPane != null) {
-                    textPane.setCaretPosition(textPane.getDocument().getLength());
-                }
             }
             
             @Override
@@ -261,9 +259,7 @@ public class TerminalPanel extends JPanel implements CurrentPathHolder {
         textPane.addMouseListener(new MouseListener() {
             @Override
             public void mouseClicked(MouseEvent e) {
-                if (!isInputMode && textPane.getCaretPosition() < userInputStart) {
-                    textPane.setCaretPosition(textPane.getDocument().getLength());
-                }
+                requestFocusInWindow();
             }
 
             @Override
@@ -278,84 +274,22 @@ public class TerminalPanel extends JPanel implements CurrentPathHolder {
             @Override
             public void mouseExited(MouseEvent e) {}
         });
-    }
 
-    private void initializeCommands() {
-        StyledDocument doc = textPane.getStyledDocument();
-        
-        // Файловые операции
-        registerCommand("pwd", new PwdCommand(doc, defaultStyle, this), CommandCategory.FILE_OPERATIONS);
-        registerCommand("ls", new LsCommand(doc, defaultStyle, directoryStyle, this), CommandCategory.FILE_OPERATIONS);
-        registerCommand("cd", new CdCommand(doc, defaultStyle, this), CommandCategory.FILE_OPERATIONS);
-        registerCommand("mkdir", new MkdirCommand(doc, defaultStyle, this), CommandCategory.FILE_OPERATIONS);
-        registerCommand("rmdir", new RmdirCommand(doc, defaultStyle, this), CommandCategory.FILE_OPERATIONS);
-        registerCommand("cat", new CatCommand(doc, defaultStyle, this, commands), CommandCategory.FILE_OPERATIONS);
-        registerCommand("touch", new TouchCommand(doc, defaultStyle, this), CommandCategory.FILE_OPERATIONS);
-        registerCommand("nano", new NanoCommand(doc, defaultStyle, this), CommandCategory.FILE_OPERATIONS);
-        registerCommand("rm", new RmCommand(doc, defaultStyle, this), CommandCategory.FILE_OPERATIONS);
-
-        // Сетевые команды
-        registerCommand("ping", new PingCommand(doc, defaultStyle), CommandCategory.NETWORK);
-        registerCommand("netstat", new NetstatCommand(doc, defaultStyle), CommandCategory.NETWORK);
-        registerCommand("trace", new TraceCommand(doc, defaultStyle), CommandCategory.NETWORK);
-        registerCommand("dns", new DnsCommand(doc, defaultStyle, this), CommandCategory.NETWORK);
-        registerCommand("nmap", new NmapCommand(doc, defaultStyle), CommandCategory.NETWORK);
-        registerCommand("portscan", new PortScanCommand(doc, defaultStyle), CommandCategory.NETWORK);
-        registerCommand("wifi", new WifiScanCommand(doc, defaultStyle), CommandCategory.NETWORK);
-        registerCommand("web", new WebCommand(doc, defaultStyle), CommandCategory.NETWORK);
-        registerCommand("con", new ConCommand(doc, defaultStyle), CommandCategory.NETWORK);
-
-        // Системные команды
-        registerCommand("ps", new PsCommand(doc, defaultStyle), CommandCategory.SYSTEM);
-        registerCommand("sys", new SysCommand(doc, defaultStyle), CommandCategory.SYSTEM);
-        registerCommand("procanalyze", new ProcessAnalyzerCommand(doc, defaultStyle), CommandCategory.SYSTEM);
-        registerCommand("cls", new ClearCommand(textPane), CommandCategory.SYSTEM);
-        registerCommand("plugins", new PluginsCommand(doc, defaultStyle), CommandCategory.SYSTEM);
-        registerCommand("theme", new ThemeCommand(doc, defaultStyle), CommandCategory.SYSTEM);
-        registerCommand("split", new SplitCommand(doc, defaultStyle, frame), CommandCategory.SYSTEM);
-
-        // Поиск и обработка
-        registerCommand("find", new FindCommand(doc, defaultStyle, this), CommandCategory.SEARCH_AND_PROCESS);
-        registerCommand("grep", new GrepCommand(doc, defaultStyle, this), CommandCategory.SEARCH_AND_PROCESS);
-        registerCommand("zip", new ZipCommand(doc, defaultStyle, this), CommandCategory.SEARCH_AND_PROCESS);
-        registerCommand("unzip", new UnzipCommand(doc, defaultStyle, this), CommandCategory.SEARCH_AND_PROCESS);
-        registerCommand("hash", new HashCommand(doc, defaultStyle, this), CommandCategory.SEARCH_AND_PROCESS);
-        registerCommand("crypto", new CryptoCommand(doc, defaultStyle, this), CommandCategory.SEARCH_AND_PROCESS);
-        registerCommand("fuzz", new FuzzCommand(doc, defaultStyle), CommandCategory.SEARCH_AND_PROCESS);
-        registerCommand("reverse", new ReverseCommand(doc, defaultStyle, this), CommandCategory.SEARCH_AND_PROCESS);
-
-        // Служебные команды
-        registerCommand("help", new HelpCommand(doc, defaultStyle, commands), CommandCategory.SYSTEM);
-        registerCommand("exit", new ExitCommand(doc, defaultStyle, () -> System.exit(0)), CommandCategory.SYSTEM);
-    }
-
-    private void registerCommand(String name, Command command, CommandCategory category) {
-        commands.put(name, new CommandInfo(name, command, category));
-    }
-
-    private void printWelcomeMessage(String version) {
-        String banner = String.format(
-            "╔══════════════════════════════════════════════════════════════╗\n" +
-            "║                     Terminal v%-3s                            ║\n" +
-            "║                                                              ║\n" +
-            "║  %s Type 'help' to see available commands                     ║\n" +
-            "║  %s Press Tab for autocompletion                              ║\n" +
-            "║  %s Use arrow keys to navigate history                        ║\n" +
-            "╚══════════════════════════════════════════════════════════════╝\n",
-            version, "•", "•", "•"
-        );
-        
-        Style welcomeStyle = textPane.addStyle("welcomeStyle", defaultStyle);
-        StyleConstants.setForeground(welcomeStyle, usernameColor);
-        StyleConstants.setBold(welcomeStyle, true);
-        
-        appendString(banner, welcomeStyle);
-    }
-
-    private void setupKeyListeners() {
         textPane.addKeyListener(new KeyAdapter() {
             @Override
             public void keyPressed(KeyEvent e) {
+                if (e.getKeyCode() == KeyEvent.VK_C && (e.getModifiersEx() & KeyEvent.CTRL_DOWN_MASK) != 0) {
+                    e.consume();
+                    if (!textPane.isEditable()) {
+                        EventManager.getInstance().emit(new TerminalEvent(EventType.COMMAND_INTERRUPTED, e));
+                        textPane.setEditable(true);
+                        textPane.setEnabled(true);
+                        appendString("\n^C\n", errorStyle);
+                        displayPrompt();
+                        return;
+                    }
+                }
+
                 if (e.getKeyCode() == KeyEvent.VK_D && (e.getModifiersEx() & KeyEvent.CTRL_DOWN_MASK) != 0) {
                     if (isInputMode) {
                         e.consume();
@@ -407,8 +341,6 @@ public class TerminalPanel extends JPanel implements CurrentPathHolder {
                         String input = getCurrentInputLine();
                         if (!input.trim().isEmpty()) {
                             executeCommand();
-                        } else {
-                            displayPrompt();
                         }
                     }
                     return;
@@ -437,11 +369,190 @@ public class TerminalPanel extends JPanel implements CurrentPathHolder {
 
                 if (e.getKeyCode() == KeyEvent.VK_LEFT || e.getKeyCode() == KeyEvent.VK_RIGHT) {
                     if (!isInputMode) {
-                        int maxPosition = textPane.getDocument().getLength() - 
-                            (currentSuggestion.isEmpty() ? 0 : currentSuggestion.length());
-                        if (textPane.getCaretPosition() > maxPosition) {
+                        if (textPane.getCaretPosition() < userInputStart) {
                             e.consume();
-                            textPane.setCaretPosition(maxPosition);
+                            textPane.setCaretPosition(userInputStart);
+                        }
+                    }
+                }
+
+                if (e.getKeyCode() == KeyEvent.VK_UP) {
+                    e.consume();
+                    showPreviousCommand();
+                } else if (e.getKeyCode() == KeyEvent.VK_DOWN) {
+                    e.consume();
+                    showNextCommand();
+                }
+            }
+        });
+    }
+
+    private void initializeCommands() {
+        StyledDocument doc = textPane.getStyledDocument();
+        
+        // Файловые операции
+        registerCommand("pwd", new PwdCommand(doc, defaultStyle, this), CommandCategory.FILE_OPERATIONS);
+        registerCommand("ls", new LsCommand(doc, defaultStyle, directoryStyle, this), CommandCategory.FILE_OPERATIONS);
+        registerCommand("cd", new CdCommand(doc, defaultStyle, this), CommandCategory.FILE_OPERATIONS);
+        registerCommand("mkdir", new MkdirCommand(doc, defaultStyle, this), CommandCategory.FILE_OPERATIONS);
+        registerCommand("rmdir", new RmdirCommand(doc, defaultStyle, this), CommandCategory.FILE_OPERATIONS);
+        registerCommand("cat", new CatCommand(doc, defaultStyle, this, commands), CommandCategory.FILE_OPERATIONS);
+        registerCommand("touch", new TouchCommand(doc, defaultStyle, this), CommandCategory.FILE_OPERATIONS);
+        registerCommand("nano", new NanoCommand(doc, defaultStyle, this), CommandCategory.FILE_OPERATIONS);
+        registerCommand("rm", new RmCommand(doc, defaultStyle, this), CommandCategory.FILE_OPERATIONS);
+
+        // Сетевые команды
+        registerCommand("ping", new PingCommand(doc, defaultStyle), CommandCategory.NETWORK);
+        registerCommand("netstat", new NetstatCommand(doc, defaultStyle), CommandCategory.NETWORK);
+        registerCommand("trace", new TraceCommand(doc, defaultStyle), CommandCategory.NETWORK);
+        registerCommand("dns", new DnsCommand(doc, defaultStyle, this), CommandCategory.NETWORK);
+        registerCommand("nmap", new NmapCommand(doc, defaultStyle), CommandCategory.NETWORK);
+        registerCommand("portscan", new PortScanCommand(doc, defaultStyle), CommandCategory.NETWORK);
+        registerCommand("wifi", new WifiScanCommand(doc, defaultStyle), CommandCategory.NETWORK);
+        registerCommand("web", new WebCommand(doc, defaultStyle), CommandCategory.NETWORK);
+        registerCommand("con", new ConCommand(doc, defaultStyle, promptStyle), CommandCategory.NETWORK);
+
+        // Системные команды
+        registerCommand("ps", new PsCommand(doc, defaultStyle), CommandCategory.SYSTEM);
+        registerCommand("sys", new SysCommand(doc, defaultStyle), CommandCategory.SYSTEM);
+        registerCommand("procanalyze", new ProcessAnalyzerCommand(doc, defaultStyle), CommandCategory.SYSTEM);
+        registerCommand("cls", new ClearCommand(textPane), CommandCategory.SYSTEM);
+        registerCommand("plugins", new PluginsCommand(doc, defaultStyle), CommandCategory.SYSTEM);
+        registerCommand("theme", new ThemeCommand(doc, defaultStyle), CommandCategory.SYSTEM);
+        registerCommand("split", new SplitCommand(doc, defaultStyle, frame), CommandCategory.SYSTEM);
+
+        // Поиск и обработка
+        registerCommand("find", new FindCommand(doc, defaultStyle, this), CommandCategory.SEARCH_AND_PROCESS);
+        registerCommand("grep", new GrepCommand(doc, defaultStyle, this), CommandCategory.SEARCH_AND_PROCESS);
+        registerCommand("zip", new ZipCommand(doc, defaultStyle, this), CommandCategory.SEARCH_AND_PROCESS);
+        registerCommand("unzip", new UnzipCommand(doc, defaultStyle, this), CommandCategory.SEARCH_AND_PROCESS);
+        registerCommand("hash", new HashCommand(doc, defaultStyle, this), CommandCategory.SEARCH_AND_PROCESS);
+        registerCommand("crypto", new CryptoCommand(doc, defaultStyle, this), CommandCategory.SEARCH_AND_PROCESS);
+        registerCommand("fuzz", new FuzzCommand(doc, defaultStyle), CommandCategory.SEARCH_AND_PROCESS);
+        registerCommand("reverse", new ReverseCommand(doc, defaultStyle, this), CommandCategory.SEARCH_AND_PROCESS);
+
+        // Служебные команды
+        registerCommand("help", new HelpCommand(doc, defaultStyle, commands), CommandCategory.SYSTEM);
+        registerCommand("exit", new ExitCommand(doc, defaultStyle, () -> System.exit(0)), CommandCategory.SYSTEM);
+    }
+
+    private void registerCommand(String name, Command command, CommandCategory category) {
+        commands.put(name, new CommandInfo(name, command, category));
+    }
+
+    private void printWelcomeMessage(String version) {
+        String banner = BannerGenerator.generate(
+            String.format("Terminal v%s", version),
+            "• Type 'help' to see available commands",
+            "• Press Tab for autocompletion",
+            "• Use arrow keys to navigate history"
+        );
+        
+        Style welcomeStyle = textPane.addStyle("welcomeStyle", defaultStyle);
+        StyleConstants.setForeground(welcomeStyle, usernameColor);
+        StyleConstants.setBold(welcomeStyle, true);
+        
+        appendString(banner, welcomeStyle);
+    }
+
+    private void setupKeyListeners() {
+        textPane.addKeyListener(new KeyAdapter() {
+            @Override
+            public void keyPressed(KeyEvent e) {
+                if (e.getKeyCode() == KeyEvent.VK_C && (e.getModifiersEx() & KeyEvent.CTRL_DOWN_MASK) != 0) {
+                    e.consume();
+                    if (!textPane.isEditable()) {
+                        EventManager.getInstance().emit(new TerminalEvent(EventType.COMMAND_INTERRUPTED, e));
+                        textPane.setEditable(true);
+                        textPane.setEnabled(true);
+                        appendString("\n^C\n", errorStyle);
+                        displayPrompt();
+                        return;
+                    }
+                }
+
+                if (e.getKeyCode() == KeyEvent.VK_D && (e.getModifiersEx() & KeyEvent.CTRL_DOWN_MASK) != 0) {
+                    if (isInputMode) {
+                        e.consume();
+                        finishInput();
+                        return;
+                    }
+                }
+
+                if (!isInputMode) {
+                    int caretPosition = textPane.getCaretPosition();
+                    if (caretPosition < userInputStart) {
+                        e.consume();
+                        textPane.setCaretPosition(textPane.getDocument().getLength());
+                        return;
+                    }
+
+                    if (e.getKeyCode() == KeyEvent.VK_BACK_SPACE || 
+                        e.getKeyCode() == KeyEvent.VK_DELETE ||
+                        (e.getKeyCode() == KeyEvent.VK_A && e.isControlDown()) ||
+                        (e.getKeyCode() == KeyEvent.VK_X && e.isControlDown())) {
+                        if (textPane.getSelectionStart() < userInputStart) {
+                            e.consume();
+                            return;
+                        }
+                    }
+                }
+
+                if (!textPane.isEditable() && !isInputMode) {
+                    if (e.getKeyCode() != KeyEvent.VK_TAB) {
+                        textPane.setEditable(true);
+                        userInputStart = textPane.getDocument().getLength();
+                        textPane.setCaretPosition(userInputStart);
+                    }
+                }
+
+                if (e.getKeyCode() == KeyEvent.VK_ENTER) {
+                    e.consume();
+                    if (isInputMode) {
+                        try {
+                            StyledDocument doc = textPane.getStyledDocument();
+                            doc.insertString(textPane.getCaretPosition(), "\n", defaultStyle);
+                        } catch (BadLocationException ex) {
+                            ex.printStackTrace();
+                        }
+                    } else {
+                        if (!currentSuggestion.isEmpty()) {
+                            completeSuggestion();
+                        }
+                        String input = getCurrentInputLine();
+                        if (!input.trim().isEmpty()) {
+                            executeCommand();
+                        }
+                    }
+                    return;
+                }
+
+                if (e.getKeyCode() == KeyEvent.VK_TAB) {
+                    e.consume();
+                    if (!currentSuggestion.isEmpty()) {
+                        completeSuggestion();
+                    }
+                    return;
+                }
+
+                if (e.getKeyCode() == KeyEvent.VK_BACK_SPACE) {
+                    if (!isInputMode) {
+                        if (!currentSuggestion.isEmpty()) {
+                            e.consume();
+                            removeSuggestion();
+                            return;
+                        }
+                        if (textPane.getCaretPosition() <= userInputStart) {
+                            e.consume();
+                        }
+                    }
+                }
+
+                if (e.getKeyCode() == KeyEvent.VK_LEFT || e.getKeyCode() == KeyEvent.VK_RIGHT) {
+                    if (!isInputMode) {
+                        if (textPane.getCaretPosition() < userInputStart) {
+                            e.consume();
+                            textPane.setCaretPosition(userInputStart);
                         }
                     }
                 }
@@ -500,39 +611,66 @@ public class TerminalPanel extends JPanel implements CurrentPathHolder {
         
         try {
             String commandLine = getCurrentInputLine();
-            appendString("\n", defaultStyle);
             
-            if (!commandLine.isEmpty()) {
-                commandHistory.add(commandLine);
-                historyIndex = commandHistory.size();
-                
-                sidebarManager.addToHistory(commandLine);
-                
-                String[] parts = commandLine.trim().split("\\s+");
-                if (parts.length > 0) {
-                    String commandName = parts[0].toLowerCase();
-                    CommandInfo commandInfo = commands.get(commandName);
+            if (commandLine.trim().isEmpty()) {
+                return;
+            }
+            
+            commandHistory.add(commandLine);
+            historyIndex = commandHistory.size();
+            
+            sidebarManager.addToHistory(commandLine);
+            
+            String[] parts = commandLine.trim().split("\\s+");
+            if (parts.length > 0) {
+                String commandName = parts[0].toLowerCase();
+                CommandInfo commandInfo = commands.get(commandName);
 
-                    if (commandInfo == null) {
-                        appendString("Ошибка: Команда не найдена: " + commandName + "\n", errorStyle);
-                        displayPrompt();
-                    } else {
-                        String[] args = new String[parts.length - 1];
-                        System.arraycopy(parts, 1, args, 0, args.length);
+                if (commandInfo == null) {
+                    appendString("\n", defaultStyle);
+                    appendString("Ошибка: Команда не найдена: " + commandName + "\n", errorStyle);
+                    displayPrompt();
+                } else {
+                    String[] args = new String[parts.length - 1];
+                    System.arraycopy(parts, 1, args, 0, args.length);
+                    
+                    Command command = commandInfo.getCommand();
+                    if (command.isLongRunning()) {
+                        textPane.setEditable(false);
+                        textPane.setEnabled(true);
                         
+                        command.executeAsync(args)
+                            .thenRun(() -> SwingUtilities.invokeLater(() -> {
+                                textPane.setEditable(true);
+                                textPane.requestFocusInWindow();
+                                userInputStart = textPane.getDocument().getLength();
+                                displayPrompt();
+                            }))
+                            .exceptionally(e -> {
+                                SwingUtilities.invokeLater(() -> {
+                                    textPane.setEditable(true);
+                                    textPane.requestFocusInWindow();
+                                    userInputStart = textPane.getDocument().getLength();
+                                    appendString("\n", defaultStyle);
+                                    appendString("Ошибка: " + e.getMessage() + "\n", errorStyle);
+                                    displayPrompt();
+                                });
+                                return null;
+                            });
+                    } else {
                         try {
-                            commandInfo.getCommand().execute(args);
-                            displayPrompt();
+                            command.execute(args);
                         } catch (Exception e) {
+                            appendString("\n", defaultStyle);
                             appendString("Ошибка: " + e.getMessage() + "\n", errorStyle);
-                            displayPrompt();
                         }
+                        displayPrompt();
                     }
                 }
-            } else {
-                displayPrompt();
             }
         } catch (Exception e) {
+            e.printStackTrace();
+            appendString("\n", defaultStyle);
             appendString("Ошибка: " + e.getMessage() + "\n", errorStyle);
             displayPrompt();
         }

@@ -4,7 +4,7 @@ import javax.swing.SwingUtilities;
 
 public class Main {
 
-    private static final String VERSION = "1.1 - ALPHA";
+    private static final String VERSION = "1.2 - ALPHA";
 
     public static void main(String[] args) {
         SwingUtilities.invokeLater(() -> {

@@ -11,7 +11,12 @@ import javax.swing.text.Style;
 import javax.swing.text.StyledDocument;
 
 import com.terminal.sdk.Command;
+import com.terminal.sdk.CurrentPathHolder;
 
+/**
+ * Базовый класс для команд терминала.
+ * Предоставляет общую функциональность для всех команд.
+ */
 public abstract class AbstractCommand implements Command {
     protected final StyledDocument doc;
     protected final Style style;
@@ -20,6 +25,8 @@ public abstract class AbstractCommand implements Command {
     private StyledDocument originalDoc;
     private Style originalStyle;
     protected final Map<String, SubCommand> subCommands;
+    protected final CurrentPathHolder pathHolder;
+    protected boolean isLongRunning = false;
 
     protected static class SubCommand {
         private final String name;
@@ -50,8 +57,13 @@ public abstract class AbstractCommand implements Command {
     }
 
     public AbstractCommand(StyledDocument doc, Style style) {
+        this(doc, style, null);
+    }
+
+    public AbstractCommand(StyledDocument doc, Style style, CurrentPathHolder pathHolder) {
         this.doc = doc;
         this.style = style;
+        this.pathHolder = pathHolder;
         this.subCommands = new HashMap<>();
         initializeSubCommands();
     }
@@ -96,6 +108,11 @@ public abstract class AbstractCommand implements Command {
         return subCommands.keySet().stream()
             .filter(cmd -> cmd.toLowerCase().startsWith(currentArg))
             .collect(java.util.stream.Collectors.toList());
+    }
+
+    @Override
+    public boolean isLongRunning() {
+        return shouldRunAsync();
     }
 
     protected StyledDocument getDoc() {
@@ -148,5 +165,51 @@ public abstract class AbstractCommand implements Command {
 
     public List<String> getSubCommandNames() {
         return new ArrayList<>(subCommands.keySet());
+    }
+
+    /**
+     * Добавляет текст в документ с указанным стилем.
+     */
+    protected void appendString(String str) {
+        try {
+            doc.insertString(doc.getLength(), str, style);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * Добавляет текст с новой строки.
+     */
+    protected void appendLine(String str) {
+        appendString(str + "\n");
+    }
+
+    /**
+     * Возвращает текущий путь из держателя пути.
+     */
+    protected String getCurrentPath() {
+        return pathHolder != null ? pathHolder.getCurrentPath() : System.getProperty("user.dir");
+    }
+
+    /**
+     * Устанавливает текущий путь в держателе пути.
+     */
+    protected void setCurrentPath(String path) {
+        if (pathHolder != null) {
+            pathHolder.setCurrentPath(path);
+        }
+    }
+
+    /**
+     * Проверяет, является ли команда длительной операцией.
+     * По умолчанию возвращает true для команд, которые:
+     * - Работают с сетью
+     * - Выполняют сложные вычисления
+     * - Обрабатывают большие файлы
+     * - Взаимодействуют с внешними процессами
+     */
+    protected boolean shouldRunAsync() {
+        return isLongRunning;
     }
 } 

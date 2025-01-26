@@ -83,7 +83,7 @@ set "BUILD_DIR=build\plugins\%JAR_FILENAME%"
 set "MANIFEST_DIR=%BUILD_DIR%\META-INF"
 set "PLUGIN_JAR=plugins\build\%JAR_FILENAME%.jar"
 set "LIBS_DIR=lib"
-set "TERMINAL_CORE=target\terminal-clone-1.0-SNAPSHOT.jar"
+set "TERMINAL_CORE=target\terminal-clone-1.2-ALPHA.jar"
 set "GSON_JAR=%USERPROFILE%\.m2\repository\com\google\code\gson\gson\2.10.1\gson-2.10.1.jar"
 
 REM Check dependencies
