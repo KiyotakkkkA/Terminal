@@ -3,6 +3,7 @@ package com.terminal.commands;
 import javax.swing.text.Style;
 import javax.swing.text.StyledDocument;
 
+import com.terminal.sdk.core.CommandContext;
 import com.terminal.sdk.system.CurrentPathHolder;
 import com.terminal.utils.OutputFormatter;
 
@@ -13,18 +14,24 @@ public class ClearCommand extends AbstractCommand {
     }
 
     @Override
-    public void executeCommand(String... args) {
+    public void execute(CommandContext context) {
         try {
-            doc.remove(0, doc.getLength());
-            OutputFormatter.appendText(doc, "\n", style);
+            context.getDoc().remove(0, context.getDoc().getLength());
+            OutputFormatter.appendText(context.getDoc(), "\n", context.getStyle());
         } catch (Exception e) {
             try {
-                OutputFormatter.printError(doc, style, "Ошибка при очистке терминала: " + e.getMessage());
-                OutputFormatter.appendText(doc, "\n", style);
+                OutputFormatter.printError(context.getDoc(), context.getStyle(), "Ошибка при очистке терминала: " + e.getMessage());
+                OutputFormatter.appendText(context.getDoc(), "\n", context.getStyle());
             } catch (Exception ex) {
                 System.err.println("Ошибка при очистке терминала: " + e.getMessage());
             }
         }
+    }
+
+    @Override
+    public void executeCommand(String... args) throws Exception {
+        CommandContext context = new CommandContext("", args, doc, style, pathHolder);
+        execute(context);
     }
 
     @Override

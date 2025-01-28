@@ -11,6 +11,7 @@ import javax.swing.text.Style;
 import javax.swing.text.StyledDocument;
 
 import com.terminal.sdk.core.Command;
+import com.terminal.sdk.core.CommandContext;
 import com.terminal.sdk.core.CommandInfo;
 import com.terminal.sdk.formatting.DefaultBeautifulFormatter;
 import com.terminal.sdk.system.CurrentPathHolder;
@@ -123,12 +124,18 @@ public abstract class AbstractCommand extends Command {
     }
 
     @Override
-    public void execute(String[] args) {
+    public void execute(CommandContext context) {
         try {
-            executeCommand(args);
+            executeCommand(context.getArgs());
         } catch (Exception e) {
             printError(e.getMessage());
         }
+    }
+
+    @Override
+    public void execute(String[] args) {
+        CommandContext context = new CommandContext("", args, doc, style, pathHolder);
+        execute(context);
     }
 
     protected abstract void executeCommand(String... args) throws Exception;

@@ -13,11 +13,13 @@ import com.terminal.sdk.system.SystemFacade;
 public class CommandFacade {
     private static CommandFacade instance;
     private final CommandRegistry registry;
+    private final CommandChainManager chainManager;
     private static final String CLASS_NAME = CommandFacade.class.getSimpleName();
     private final SystemFacade systemFacade;
 
     private CommandFacade() {
         this.registry = new CommandRegistry();
+        this.chainManager = CommandChainManager.getInstance();
         this.systemFacade = SystemFacade.getInstance();
     }
 
@@ -47,11 +49,20 @@ public class CommandFacade {
     /**
      * Выполняет команду с заданными параметрами
      */
-    public void executeCommand(String commandName, String[] args) {
+    public void executeCommand(String commandName, String[] args, StyledDocument doc, Style style, CurrentPathHolder pathHolder) {
         try {
             Command command = registry.getCommand(commandName);
             if (command != null) {
-                command.execute(args);
+                CommandContext context = new CommandContext(commandName, args, doc, style, pathHolder);
+                context.setCommand(command);
+                
+                if (!chainManager.processCommand(context)) {
+                    systemFacade.logError(CLASS_NAME, "Не удалось обработать команду: " + commandName);
+                }
+                
+                if (!context.isHandled() && context.getResult() != null) {
+                    systemFacade.logError(CLASS_NAME, context.getResult());
+                }
             } else {
                 systemFacade.logError(CLASS_NAME, "Команда не найдена: " + commandName);
             }
@@ -61,19 +72,11 @@ public class CommandFacade {
     }
 
     /**
-     * Выполняет асинхронную команду
+     * Получает информацию о команде
      */
-    public void executeAsyncCommand(String commandName, String[] args) {
-        try {
-            Command command = registry.getCommand(commandName);
-            if (command instanceof AsyncCommand) {
-                ((AsyncCommand) command).executeAsync(args);
-            } else {
-                systemFacade.logError(CLASS_NAME, "Асинхронная команда не найдена: " + commandName);
-            }
-        } catch (Exception e) {
-            systemFacade.logError(CLASS_NAME, "Ошибка при выполнении асинхронной команды " + commandName + ": " + e.getMessage());
-        }
+    public CommandInfo getCommandInfo(String commandName) {
+        Command command = registry.getCommand(commandName);
+        return command != null ? command.getInfo() : null;
     }
 
     /**
@@ -82,6 +85,14 @@ public class CommandFacade {
     public CommandCategory getCommandCategory(String commandName) {
         Command command = registry.getCommand(commandName);
         return command != null ? CommandCategory.valueOf(command.getCategory()) : null;
+    }
+
+    /**
+     * Добавляет новый обработчик команд в цепочку
+     */
+    public void addCommandHandler(CommandHandler handler) {
+        chainManager.addHandler(handler);
+        systemFacade.logInfo(CLASS_NAME, "Добавлен новый обработчик команд: " + handler.getClass().getSimpleName());
     }
 
     public Command createCommand(String name, String description, String category,

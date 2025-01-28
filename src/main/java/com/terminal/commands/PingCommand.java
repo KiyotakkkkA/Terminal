@@ -1,25 +1,26 @@
 package com.terminal.commands;
 
-import java.io.BufferedReader;
-import java.io.InputStreamReader;
 import java.net.InetAddress;
 
 import javax.swing.text.Style;
 import javax.swing.text.StyledDocument;
 
+import com.terminal.sdk.core.CommandContext;
 import com.terminal.utils.OutputFormatter;
 
 public class PingCommand extends AbstractCommand {
+    private volatile boolean isRunning = true;
 
     public PingCommand(StyledDocument doc, Style style) {
         super(doc, style, null, "ping", "Проверка доступности хоста", "NETWORK");
     }
 
     @Override
-    public void executeCommand(String... args) {
+    public void execute(CommandContext context) {
         try {
+            String[] args = context.getArgs();
             if (args.length < 1) {
-                showUsage();
+                showUsage(context);
                 return;
             }
 
@@ -35,55 +36,83 @@ public class PingCommand extends AbstractCommand {
                 }
             }
 
-            OutputFormatter.printBoxedHeader(doc, style, "Пинг " + host);
+            OutputFormatter.printBeautifulSection(context.getDoc(), context.getStyle(), "Пинг " + host);
             
             InetAddress address = InetAddress.getByName(host);
-            OutputFormatter.printBoxedLine(doc, style, 
-                String.format("IP адрес: %s", address.getHostAddress()));
+            String hostname = address.getHostName();
+            String ip = address.getHostAddress();
+            
+            OutputFormatter.printBeautifulMessage(context.getDoc(), context.getStyle(), 
+                String.format("Пинг %s [%s] с %d байтами данных:", hostname, ip, 32));
 
-            String command = System.getProperty("os.name").toLowerCase().contains("windows") 
-                ? String.format("ping -n %d -w %d %s", count, timeout, host)
-                : String.format("ping -c %d -W %d %s", count, timeout/1000, host);
+            int successful = 0;
+            long totalTime = 0;
+            long minTime = Long.MAX_VALUE;
+            long maxTime = 0;
 
-            Process process = Runtime.getRuntime().exec(command);
-            BufferedReader reader = new BufferedReader(
-                new InputStreamReader(process.getInputStream(), 
-                    System.getProperty("os.name").toLowerCase().contains("windows") ? "CP866" : "UTF-8")
-            );
+            for (int i = 0; i < count && isRunning; i++) {
+                long startTime = System.currentTimeMillis();
+                boolean reachable = address.isReachable(timeout);
+                long endTime = System.currentTimeMillis();
+                long time = endTime - startTime;
 
-            String line;
-            while ((line = reader.readLine()) != null) {
-                OutputFormatter.printBoxedLine(doc, style, line);
+                if (reachable) {
+                    successful++;
+                    totalTime += time;
+                    minTime = Math.min(minTime, time);
+                    maxTime = Math.max(maxTime, time);
+                    
+                    OutputFormatter.printBeautifulMessage(context.getDoc(), context.getStyle(),
+                        String.format("Ответ от %s: время=%dмс", ip, time));
+                } else {
+                    OutputFormatter.printError(context.getDoc(), context.getStyle(),
+                        String.format("Превышен интервал ожидания для %s", ip));
+                }
+
+                if (i < count - 1) Thread.sleep(1000);
             }
 
-            OutputFormatter.printBoxedFooter(doc, style);
-
+            if (successful > 0) {
+                double avgTime = totalTime / (double) successful;
+                double lossPercent = ((count - successful) / (double) count) * 100;
+                
+                String[][] stats = {
+                    {"Отправлено", String.valueOf(count)},
+                    {"Получено", String.valueOf(successful)},
+                    {"Потеряно", String.format("%.0f%% (%d)", lossPercent, count - successful)},
+                    {"Минимальное время", minTime + " мс"},
+                    {"Максимальное время", maxTime + " мс"},
+                    {"Среднее время", String.format("%.1f мс", avgTime)}
+                };
+                
+                OutputFormatter.printBeautifulTable(context.getDoc(), context.getStyle(),
+                    new String[]{"Параметр", "Значение"}, stats);
+            }
+            
         } catch (Exception e) {
             try {
-                OutputFormatter.printError(doc, style, e.getMessage());
+                OutputFormatter.printError(context.getDoc(), context.getStyle(), "Ошибка: " + e.getMessage());
             } catch (Exception ex) {
-                System.err.println("Ошибка при выполнении ping: " + e.getMessage());
+                System.err.println("Ошибка при выполнении команды ping: " + e.getMessage());
             }
         }
     }
 
-    private void showUsage() throws Exception {
-        OutputFormatter.printBoxedHeader(doc, style, "Использование: ping <хост> [-n число] [-w таймаут]");
-        OutputFormatter.printBoxedLine(doc, style, "Проверяет доступность хоста");
-        OutputFormatter.printBoxedLine(doc, style, "");
-        OutputFormatter.printBoxedLine(doc, style, "Параметры:");
-        OutputFormatter.printBoxedLine(doc, style, "  -n число    количество запросов (по умолчанию 4)");
-        OutputFormatter.printBoxedLine(doc, style, "  -w таймаут  таймаут в миллисекундах (по умолчанию 1000)");
-        OutputFormatter.printBoxedLine(doc, style, "");
-        OutputFormatter.printBoxedLine(doc, style, "Примеры:");
-        OutputFormatter.printBoxedLine(doc, style, "  ping google.com");
-        OutputFormatter.printBoxedLine(doc, style, "  ping 8.8.8.8 -n 10");
-        OutputFormatter.printBoxedLine(doc, style, "  ping localhost -w 500");
-        OutputFormatter.printBoxedFooter(doc, style);
+    private void showUsage(CommandContext context) throws Exception {
+        OutputFormatter.printBeautifulSection(context.getDoc(), context.getStyle(), "Использование команды ping");
+        OutputFormatter.printBeautifulMessage(context.getDoc(), context.getStyle(),
+            "ping <хост> [-n число] [-w таймаут]\n" +
+            "  -n число    количество запросов\n" +
+            "  -w таймаут  таймаут в миллисекундах");
     }
 
     @Override
-    public String getDescription() {
-        return "проверка доступности хоста";
+    public void executeCommand(String... args) throws Exception {
+        CommandContext context = new CommandContext("", args, doc, style, pathHolder);
+        execute(context);
+    }
+
+    public void interrupt() {
+        isRunning = false;
     }
 } 

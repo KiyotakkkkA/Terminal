@@ -5,8 +5,8 @@ import java.util.concurrent.CompletableFuture;
 import javax.swing.text.Style;
 import javax.swing.text.StyledDocument;
 
-import com.terminal.sdk.system.CurrentPathHolder;
 import com.terminal.sdk.services.TerminalService;
+import com.terminal.sdk.system.CurrentPathHolder;
 
 /**
  * Простая реализация асинхронной команды
@@ -22,6 +22,11 @@ public class SimpleAsyncCommand extends AsyncCommand {
         this.name = name;
         this.description = description;
         this.category = category;
+    }
+    
+    @Override
+    public void execute(CommandContext context) {
+        executeAsync(context.getArgs());
     }
     
     @Override

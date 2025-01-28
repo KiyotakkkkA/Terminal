@@ -5,6 +5,7 @@ import java.io.File;
 import javax.swing.text.Style;
 import javax.swing.text.StyledDocument;
 
+import com.terminal.sdk.core.CommandContext;
 import com.terminal.sdk.system.CurrentPathHolder;
 import com.terminal.utils.OutputFormatter;
 
@@ -19,45 +20,60 @@ public class LsCommand extends AbstractCommand {
     }
 
     @Override
-    public void executeCommand(String... args) {
+    public void execute(CommandContext context) {
         try {
+            String[] args = context.getArgs();
             File dir = args.length > 0 
                 ? new File(pathHolder.getCurrentPath(), args[0])
                 : new File(pathHolder.getCurrentPath());
 
             if (!dir.exists() || !dir.isDirectory()) {
-                OutputFormatter.printError(doc, style, "Директория не существует: " + dir.getPath());
+                OutputFormatter.printError(context.getDoc(), context.getStyle(), "Директория не существует: " + dir.getPath());
                 return;
             }
 
-            OutputFormatter.printBoxedHeader(doc, style, "Содержимое директории");
-            OutputFormatter.printBoxedLine(doc, style, "Путь: " + dir.getCanonicalPath());
-
+            OutputFormatter.printBeautifulSection(context.getDoc(), context.getStyle(), "Содержимое директории: " + dir.getCanonicalPath());
+            
             File[] files = dir.listFiles();
             if (files != null) {
-                for (File file : files) {
-                    String type = file.isDirectory() ? "DIR" : "FILE";
-                    try {
-                        OutputFormatter.printBoxedLine(doc, file.isDirectory() ? directoryStyle : style,
-                            String.format("%-4s %-40s %8d bytes",
-                                type,
-                                file.getName(),
-                                file.length()));
-                    } catch (Exception e) {
-                        OutputFormatter.printError(doc, style, "Ошибка при обработке файла " + file.getName() + ": " + e.getMessage());
-                    }
+                String[][] data = new String[files.length][3];
+                String[] headers = {"Имя", "Размер", "Тип"};
+                
+                for (int i = 0; i < files.length; i++) {
+                    File file = files[i];
+                    data[i][0] = file.getName();
+                    data[i][1] = file.isDirectory() ? "<DIR>" : String.format("%,d bytes", file.length());
+                    data[i][2] = getFileType(file);
                 }
+                
+                OutputFormatter.printBeautifulTable(context.getDoc(), context.getStyle(), headers, data);
             }
-
-            OutputFormatter.printBoxedFooter(doc, style);
-
         } catch (Exception e) {
             try {
-                OutputFormatter.printError(doc, style, e.getMessage());
+                OutputFormatter.printError(context.getDoc(), context.getStyle(), "Ошибка при чтении директории: " + e.getMessage());
             } catch (Exception ex) {
-                ex.printStackTrace();
+                System.err.println("Ошибка при чтении директории: " + e.getMessage());
             }
         }
+    }
+
+    private String getFileType(File file) {
+        if (file.isDirectory()) return "Папка";
+        String name = file.getName().toLowerCase();
+        if (name.endsWith(".txt")) return "Текст";
+        if (name.endsWith(".exe")) return "Программа";
+        if (name.endsWith(".dll")) return "Библиотека";
+        if (name.endsWith(".zip") || name.endsWith(".rar")) return "Архив";
+        if (name.endsWith(".jpg") || name.endsWith(".png")) return "Изображение";
+        if (name.endsWith(".doc") || name.endsWith(".docx")) return "Документ Word";
+        if (name.endsWith(".pdf")) return "Документ PDF";
+        return "Файл";
+    }
+
+    @Override
+    public void executeCommand(String... args) throws Exception {
+        CommandContext context = new CommandContext("", args, doc, style, pathHolder);
+        execute(context);
     }
 
     @Override

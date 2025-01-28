@@ -6,7 +6,7 @@
 
     <groupId>com.terminal</groupId>
     <artifactId>terminal-clone</artifactId>
-    <version>2.0.1-ALPHA</version>
+    <version>2.0.3-ALPHA</version>
 
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>

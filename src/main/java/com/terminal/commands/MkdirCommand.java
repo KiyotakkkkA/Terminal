@@ -5,6 +5,7 @@ import java.io.File;
 import javax.swing.text.Style;
 import javax.swing.text.StyledDocument;
 
+import com.terminal.sdk.core.CommandContext;
 import com.terminal.sdk.system.CurrentPathHolder;
 import com.terminal.utils.OutputFormatter;
 
@@ -17,55 +18,51 @@ public class MkdirCommand extends AbstractCommand {
     }
 
     @Override
-    public void executeCommand(String... args) {
+    public void execute(CommandContext context) {
         try {
+            String[] args = context.getArgs();
             if (args.length < 1) {
-                showUsage();
+                showUsage(context);
                 return;
             }
 
             String dirName = args[0];
             File dir = new File(pathHolder.getCurrentPath(), dirName);
 
-            OutputFormatter.printBoxedHeader(doc, style, "Создание папки");
-            OutputFormatter.printBoxedLine(doc, style, "Папка: " + dir.getCanonicalPath());
+            OutputFormatter.printBeautifulSection(context.getDoc(), context.getStyle(), "Создание папки");
+            OutputFormatter.printBeautifulMessage(context.getDoc(), context.getStyle(), "Папка: " + dir.getCanonicalPath());
 
             if (dir.exists()) {
-                OutputFormatter.printError(doc, style, "Папка уже существует: " + dirName);
+                OutputFormatter.printError(context.getDoc(), context.getStyle(), "Папка уже существует: " + dirName);
                 return;
             }
 
-            boolean createParents = args.length > 1 && args[1].equals("-p");
-            boolean success = createParents ? dir.mkdirs() : dir.mkdir();
-
+            boolean success = dir.mkdirs();
             if (success) {
-                OutputFormatter.printBoxedLine(doc, style, "Папка успешно создана");
+                OutputFormatter.printBeautifulMessage(context.getDoc(), context.getStyle(), "Папка успешно создана");
             } else {
-                OutputFormatter.printError(doc, style, "Не удалось создать папку");
+                OutputFormatter.printError(context.getDoc(), context.getStyle(), "Не удалось создать папку");
             }
-
-            OutputFormatter.printBoxedFooter(doc, style);
-
         } catch (Exception e) {
             try {
-                OutputFormatter.printError(doc, style, e.getMessage());
+                OutputFormatter.printError(context.getDoc(), context.getStyle(), "Ошибка при создании папки: " + e.getMessage());
             } catch (Exception ex) {
                 System.err.println("Ошибка при создании папки: " + e.getMessage());
             }
         }
     }
 
-    private void showUsage() throws Exception {
-        OutputFormatter.printBoxedHeader(doc, style, "Использование: mkdir <папка> [-p]");
-        OutputFormatter.printBoxedLine(doc, style, "Создает новую папку");
-        OutputFormatter.printBoxedLine(doc, style, "");
-        OutputFormatter.printBoxedLine(doc, style, "Параметры:");
-        OutputFormatter.printBoxedLine(doc, style, "  -p    создать родительские папки при необходимости");
-        OutputFormatter.printBoxedLine(doc, style, "");
-        OutputFormatter.printBoxedLine(doc, style, "Примеры:");
-        OutputFormatter.printBoxedLine(doc, style, "  mkdir test         - создать папку test");
-        OutputFormatter.printBoxedLine(doc, style, "  mkdir a/b/c -p     - создать папки a, b и c");
-        OutputFormatter.printBoxedFooter(doc, style);
+    private void showUsage(CommandContext context) throws Exception {
+        OutputFormatter.printBeautifulSection(context.getDoc(), context.getStyle(), "Использование команды mkdir");
+        OutputFormatter.printBeautifulMessage(context.getDoc(), context.getStyle(),
+            "mkdir <имя_папки>\n" +
+            "Создает новую папку в текущей директории");
+    }
+
+    @Override
+    public void executeCommand(String... args) throws Exception {
+        CommandContext context = new CommandContext("", args, doc, style, pathHolder);
+        execute(context);
     }
 
     @Override

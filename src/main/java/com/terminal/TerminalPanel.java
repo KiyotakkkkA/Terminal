@@ -65,7 +65,10 @@ import com.terminal.sdk.core.AsyncCommand;
 import com.terminal.sdk.core.AsyncTaskManager;
 import com.terminal.sdk.core.Command;
 import com.terminal.sdk.core.CommandCategory;
+import com.terminal.sdk.core.CommandContext;
+import com.terminal.sdk.core.CommandFacade;
 import com.terminal.sdk.core.CommandInfo;
+import com.terminal.sdk.core.handlers.LoggingCommandHandler;
 import com.terminal.sdk.events.EventType;
 import com.terminal.sdk.events.TerminalEvent;
 import com.terminal.sdk.services.IEventManager;
@@ -80,6 +83,7 @@ import com.terminal.utils.PluginManager;
 import com.terminal.utils.SidebarManager;
 
 public class TerminalPanel extends JPanel {
+    private static final long serialVersionUID = 1L;
     private Color backgroundColor = new Color(13, 17, 23);
     private Color defaultTextColor = new Color(201, 209, 217);
     private Color usernameColor = new Color(88, 166, 255);
@@ -89,14 +93,14 @@ public class TerminalPanel extends JPanel {
     private Color suggestionColor = new Color(139, 148, 158);
     private Color promptColor = new Color(126, 231, 135);
     private static final int LEFT_PADDING = 10;
-    private final JTextPane textPane;
-    private final Style defaultStyle;
-    private final Style usernameStyle;
-    private final Style directoryStyle;
-    private final Style errorStyle;
-    private final Style successStyle;
-    private final Style suggestionStyle;
-    private final Style promptStyle;
+    private final JTextPane textPane = new JTextPane();
+    private Style defaultStyle;
+    private Style usernameStyle;
+    private Style directoryStyle;
+    private Style errorStyle;
+    private Style successStyle;
+    private Style suggestionStyle;
+    private Style promptStyle;
     private int userInputStart;
     private int commandStart;
     private String currentPath;
@@ -117,7 +121,7 @@ public class TerminalPanel extends JPanel {
     private static final String BRANCH_SYMBOL = "";
     private static final int FONT_SIZE = 14;
     private static final int PADDING = 12;
-    private final SidebarManager sidebarManager;
+    private SidebarManager sidebarManager;
     private final IEventManager eventManager;
     private final IThemeManager themeManager;
     private final IPluginManager pluginManager;
@@ -125,6 +129,7 @@ public class TerminalPanel extends JPanel {
     private Command currentCommand;
     private static int nextId = 0;
     private final int terminalId;
+    private CommandFacade commandFacade;
 
     public TerminalPanel(TerminalFrame frame, String version) {
         this.frame = frame;
@@ -134,10 +139,28 @@ public class TerminalPanel extends JPanel {
         this.eventManager = locator.resolve(IEventManager.class);
         this.themeManager = locator.resolve(IThemeManager.class);
         this.pluginManager = locator.resolve(IPluginManager.class);
+        this.commandFacade = CommandFacade.getInstance();
+        
+        // Добавляем обработчик логирования в начало цепочки
+        this.commandFacade.addCommandHandler(new LoggingCommandHandler());
         
         // Регистрируем текущий терминал
         TerminalService.getInstance().setTerminalPanel(this);
         
+        this.pathHolder = CurrentPathHolder.getInstance();
+        
+        initializeUI();
+        initializeStyles();
+        initializeKeyBindings();
+        printWelcomeMessage(version);
+        initializeCommands();
+        
+        // Инициализируем начальное состояние
+        userInputStart = 0;
+        displayPrompt();
+    }
+
+    private void initializeUI() {
         setLayout(new BorderLayout());
         
         sidebarManager = new SidebarManager(this);
@@ -176,7 +199,6 @@ public class TerminalPanel extends JPanel {
         suggestionColor = Color.decode(themeManager.getThemeColor("suggestion"));
         promptColor = Color.decode(themeManager.getThemeColor("prompt"));
         
-        textPane = new JTextPane();
         textPane.setBackground(backgroundColor);
         textPane.setCaretColor(defaultTextColor);
         
@@ -238,10 +260,7 @@ public class TerminalPanel extends JPanel {
         historyIndex = -1;
         currentPath = System.getProperty("user.dir");
         
-        printWelcomeMessage(version);
-        initializeCommands();
         setupKeyListeners();
-        displayPrompt();
         
         suggestionStyle = textPane.addStyle("suggestion", defaultStyle);
         StyleConstants.setForeground(suggestionStyle, suggestionColor);
@@ -299,6 +318,14 @@ public class TerminalPanel extends JPanel {
         });
     }
 
+    private void initializeStyles() {
+        // Implementation of initializeStyles method
+    }
+
+    private void initializeKeyBindings() {
+        // Implementation of initializeKeyBindings method
+    }
+
     private void initializeCommands() {
         StyledDocument doc = textPane.getStyledDocument();
         
@@ -344,28 +371,12 @@ public class TerminalPanel extends JPanel {
         // Служебные команды
         registerCommand("help", new HelpCommand(doc, defaultStyle, promptStyle, pathHolder, commands), CommandCategory.SYSTEM);
         registerCommand("exit", new ExitCommand(doc, defaultStyle, () -> System.exit(0)), CommandCategory.SYSTEM);
-        
-        // Загружаем команды плагинов
-        commands.putAll(pluginManager.getPluginCommands());
     }
 
     private void registerCommand(String name, Command command, CommandCategory category) {
-        commands.put(name, new CommandInfo(name, command.getDescription(), category.name(), command));
-    }
-
-    private void printWelcomeMessage(String version) {
-        String banner = BannerGenerator.generate(
-            String.format("Terminal v%s", version),
-            "• Type 'help' to see available commands",
-            "• Press Tab for autocompletion",
-            "• Use arrow keys to navigate history"
-        );
-        
-        Style welcomeStyle = textPane.addStyle("welcomeStyle", defaultStyle);
-        StyleConstants.setForeground(welcomeStyle, usernameColor);
-        StyleConstants.setBold(welcomeStyle, true);
-        
-        appendString(banner, welcomeStyle);
+        CommandInfo info = new CommandInfo(name, command.getDescription(), category.name(), command);
+        commands.put(name, info);
+        // Больше не регистрируем команду в CommandFacade, так как будем использовать прямое выполнение
     }
 
     private void displayPrompt() {
@@ -404,61 +415,39 @@ public class TerminalPanel extends JPanel {
         }
     }
 
-    private void executeCommand() {
-        if (isLocked) {
-            return;
-        }
-        
+    private void executeCommand(String input) {
         try {
-            String commandLine = getCurrentInputLine();
-            if (commandLine.trim().isEmpty()) {
+            String[] parts = input.trim().split("\\s+");
+            if (parts.length == 0 || input.trim().isEmpty()) {
+                displayPrompt();
                 return;
             }
-            
-            commandHistory.add(commandLine);
-            historyIndex = commandHistory.size();
-            sidebarManager.addToHistory(commandLine);
-            
-            String[] parts = commandLine.trim().split("\\s+");
-            if (parts.length > 0) {
-                String commandName = parts[0].toLowerCase();
-                CommandInfo commandInfo = commands.get(commandName);
-                appendString("\n", defaultStyle);
 
-                if (commandInfo == null) {
-                    appendString("Ошибка: Команда не найдена: " + commandName + "\n", errorStyle);
-                    displayPrompt();
-                } else {
-                    String[] args = new String[parts.length - 1];
-                    System.arraycopy(parts, 1, args, 0, args.length);
-                    
-                    currentCommand = commandInfo.getCommand();
-                    
-                    if (currentCommand instanceof AbstractAsyncCommand || currentCommand instanceof AsyncCommand) {
-                        lock();
-                        
-                        try {
-                            currentCommand.execute(args);
-                        } catch (Exception e) {
-                            currentCommand = null;
-                            unlock();
-                            appendString("\n", defaultStyle);
-                            appendString("Ошибка: " + e.getMessage() + "\n", errorStyle);
-                            displayPrompt();
-                        }
-                    } else {
-                        try {
-                            currentCommand.execute(args);
-                            currentCommand = null;
-                            displayPrompt();
-                        } catch (Exception e) {
-                            currentCommand = null;
-                            appendString("\n", defaultStyle);
-                            appendString("Ошибка: " + e.getMessage() + "\n", errorStyle);
-                            displayPrompt();
-                        }
-                    }
+            String commandName = parts[0].toLowerCase();
+            CommandInfo commandInfo = commands.get(commandName);
+            appendString("\n", defaultStyle);
+
+            if (commandInfo == null) {
+                appendString("Ошибка: Команда не найдена: " + commandName + "\n", errorStyle);
+                displayPrompt();
+            } else {
+                String[] args = new String[parts.length - 1];
+                System.arraycopy(parts, 1, args, 0, args.length);
+                
+                currentCommand = commandInfo.getCommand();
+                
+                if (!commandHistory.contains(input.trim())) {
+                    commandHistory.add(input.trim());
+                    historyIndex = commandHistory.size();
                 }
+                
+                // Выполняем команду напрямую
+                Command command = commandInfo.getCommand();
+                command.execute(new CommandContext(commandName, args, textPane.getStyledDocument(), defaultStyle, pathHolder));
+                
+                // Добавляем перенос строки после выполнения команды
+                appendString("\n", defaultStyle);
+                displayPrompt();
             }
         } catch (Exception e) {
             e.printStackTrace();
@@ -909,6 +898,29 @@ public class TerminalPanel extends JPanel {
                     }
                 }
 
+                if (e.getKeyCode() == KeyEvent.VK_ENTER && !isLocked) {
+                    e.consume();
+                    if (isInputMode) {
+                        try {
+                            StyledDocument doc = textPane.getStyledDocument();
+                            doc.insertString(textPane.getCaretPosition(), "\n", defaultStyle);
+                        } catch (BadLocationException ex) {
+                            ex.printStackTrace();
+                        }
+                    } else {
+                        if (!currentSuggestion.isEmpty()) {
+                            completeSuggestion();
+                        }
+                        String input = getCurrentInputLine();
+                        if (!input.trim().isEmpty()) {
+                            executeCommand(input);
+                        } else {
+                            displayPrompt();
+                        }
+                    }
+                    return;
+                }
+
                 if (e.getKeyCode() == KeyEvent.VK_D && (e.getModifiersEx() & KeyEvent.CTRL_DOWN_MASK) != 0) {
                     if (isInputMode) {
                         e.consume();
@@ -942,27 +954,6 @@ public class TerminalPanel extends JPanel {
                         userInputStart = textPane.getDocument().getLength();
                         textPane.setCaretPosition(userInputStart);
                     }
-                }
-
-                if (e.getKeyCode() == KeyEvent.VK_ENTER) {
-                    e.consume();
-                    if (isInputMode) {
-                        try {
-                            StyledDocument doc = textPane.getStyledDocument();
-                            doc.insertString(textPane.getCaretPosition(), "\n", defaultStyle);
-                        } catch (BadLocationException ex) {
-                            ex.printStackTrace();
-                        }
-                    } else {
-                        if (!currentSuggestion.isEmpty()) {
-                            completeSuggestion();
-                        }
-                        String input = getCurrentInputLine();
-                        if (!input.trim().isEmpty()) {
-                            executeCommand();
-                        }
-                    }
-                    return;
                 }
 
                 if (e.getKeyCode() == KeyEvent.VK_TAB) {
@@ -1011,5 +1002,21 @@ public class TerminalPanel extends JPanel {
                 }
             }
         });
+    }
+
+    private void printWelcomeMessage(String version) {
+        String banner = BannerGenerator.generate(
+            String.format("Terminal v%s", version),
+            "• Type 'help' to see available commands",
+            "• Press Tab for autocompletion",
+            "• Use arrow keys to navigate history"
+        );
+        
+        Style welcomeStyle = textPane.addStyle("welcomeStyle", defaultStyle);
+        StyleConstants.setForeground(welcomeStyle, usernameColor);
+        StyleConstants.setBold(welcomeStyle, true);
+        
+        appendString(banner, welcomeStyle);
+        userInputStart = textPane.getDocument().getLength();
     }
 } 

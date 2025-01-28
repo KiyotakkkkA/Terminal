@@ -19,6 +19,7 @@ import javax.swing.text.Style;
 import javax.swing.text.StyledDocument;
 
 import com.terminal.sdk.AbstractAsyncCommand;
+import com.terminal.sdk.core.CommandContext;
 import com.terminal.sdk.services.TerminalService;
 import com.terminal.sdk.system.CurrentPathHolder;
 import com.terminal.utils.OutputFormatter;
@@ -35,6 +36,11 @@ public class ConCommand extends AbstractAsyncCommand {
     public ConCommand(StyledDocument doc, Style style, Style promptStyle, CurrentPathHolder pathHolder) {
         super(doc, style, pathHolder);
         this.promptStyle = promptStyle;
+    }
+
+    @Override
+    public CompletableFuture<Void> executeAsync(CommandContext context) {
+        return executeAsync(context.getArgs());
     }
 
     @Override

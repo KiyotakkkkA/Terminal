@@ -9,7 +9,7 @@ public interface IAsyncCommand {
     /**
      * Асинхронное выполнение команды
      */
-    CompletableFuture<Void> executeAsync(String[] args);
+    CompletableFuture<Void> executeAsync(CommandContext context);
     
     /**
      * Проверяет, является ли команда длительной операцией

@@ -23,9 +23,17 @@ public abstract class Command {
     }
     
     /**
-     * Выполнить команду
+     * Выполнить команду с контекстом
      */
-    public abstract void execute(String[] args);
+    public abstract void execute(CommandContext context);
+    
+    /**
+     * Выполнить команду (устаревший метод для обратной совместимости)
+     */
+    public void execute(String[] args) {
+        CommandContext context = new CommandContext("", args, doc, style, pathHolder);
+        execute(context);
+    }
     
     /**
      * Получить подсказки для автодополнения

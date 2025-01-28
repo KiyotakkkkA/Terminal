@@ -9,6 +9,7 @@ import java.util.zip.ZipOutputStream;
 import javax.swing.text.Style;
 import javax.swing.text.StyledDocument;
 
+import com.terminal.sdk.core.CommandContext;
 import com.terminal.sdk.system.CurrentPathHolder;
 import com.terminal.utils.OutputFormatter;
 
@@ -21,67 +22,100 @@ public class ZipCommand extends AbstractCommand {
     }
 
     @Override
-    public void executeCommand(String... args) {
+    public void execute(CommandContext context) {
         try {
+            String[] args = context.getArgs();
             if (args.length < 2) {
-                OutputFormatter.printBoxedHeader(doc, style, "Использование: zip <архив.zip> <файлы...>");
-                OutputFormatter.printBoxedLine(doc, style, "Создает ZIP архив из указанных файлов");
-                OutputFormatter.printBoxedLine(doc, style, "Примеры:");
-                OutputFormatter.printBoxedLine(doc, style, "  zip archive.zip file1.txt file2.txt");
-                OutputFormatter.printBoxedLine(doc, style, "  zip docs.zip *.txt");
-                OutputFormatter.printBoxedFooter(doc, style);
+                showUsage(context);
                 return;
             }
 
             String zipFileName = args[0];
-            File zipFile = new File(pathHolder.getCurrentPath(), zipFileName);
+            if (!zipFileName.toLowerCase().endsWith(".zip")) {
+                zipFileName += ".zip";
+            }
 
-            OutputFormatter.printBoxedHeader(doc, style, "Создание архива");
-            OutputFormatter.printBoxedLine(doc, style, "Архив: " + zipFile.getName());
-            OutputFormatter.printBoxedLine(doc, style, "");
+            File zipFile = new File(pathHolder.getCurrentPath(), zipFileName);
+            OutputFormatter.printBeautifulSection(context.getDoc(), context.getStyle(), "Создание ZIP архива");
+            OutputFormatter.printBeautifulMessage(context.getDoc(), context.getStyle(), "Архив: " + zipFile.getCanonicalPath());
 
             try (ZipOutputStream zos = new ZipOutputStream(new FileOutputStream(zipFile))) {
                 for (int i = 1; i < args.length; i++) {
                     File fileToZip = new File(pathHolder.getCurrentPath(), args[i]);
-                    addToZip(fileToZip, fileToZip.getName(), zos);
+                    if (!fileToZip.exists()) {
+                        OutputFormatter.printError(context.getDoc(), context.getStyle(), "Файл не существует: " + args[i]);
+                        continue;
+                    }
+
+                    addToZip(context, zos, fileToZip, "");
                 }
             }
 
-            OutputFormatter.printBoxedFooter(doc, style);
+            OutputFormatter.printBeautifulMessage(context.getDoc(), context.getStyle(), "Архив успешно создан");
+            
+            // Выводим статистику
+            String[][] stats = {
+                {"Размер архива", String.format("%,d байт", zipFile.length())},
+                {"Количество файлов", String.valueOf(args.length - 1)},
+                {"Расположение", zipFile.getCanonicalPath()}
+            };
+            
+            OutputFormatter.printBeautifulTable(context.getDoc(), context.getStyle(),
+                new String[]{"Параметр", "Значение"}, stats);
 
         } catch (Exception e) {
             try {
-                OutputFormatter.printError(doc, style, e.getMessage());
+                OutputFormatter.printError(context.getDoc(), context.getStyle(), "Ошибка при создании архива: " + e.getMessage());
             } catch (Exception ex) {
-                ex.printStackTrace();
+                System.err.println("Ошибка при создании архива: " + e.getMessage());
             }
         }
     }
 
-    private void addToZip(File file, String fileName, ZipOutputStream zos) throws Exception {
-        if (file.isDirectory()) {
-            File[] files = file.listFiles();
-            if (files != null) {
-                for (File child : files) {
-                    addToZip(child, fileName + "/" + child.getName(), zos);
+    private void addToZip(CommandContext context, ZipOutputStream zos, File fileToZip, String parentPath) throws Exception {
+        String entryPath = parentPath + fileToZip.getName();
+        
+        if (fileToZip.isDirectory()) {
+            File[] children = fileToZip.listFiles();
+            if (children != null) {
+                for (File child : children) {
+                    addToZip(context, zos, child, entryPath + "/");
                 }
             }
             return;
         }
 
-        try (FileInputStream fis = new FileInputStream(file)) {
-            ZipEntry zipEntry = new ZipEntry(fileName);
+        try (FileInputStream fis = new FileInputStream(fileToZip)) {
+            ZipEntry zipEntry = new ZipEntry(entryPath);
             zos.putNextEntry(zipEntry);
 
             byte[] buffer = new byte[1024];
-            int length;
-            while ((length = fis.read(buffer)) >= 0) {
-                zos.write(buffer, 0, length);
+            int len;
+            while ((len = fis.read(buffer)) > 0) {
+                zos.write(buffer, 0, len);
             }
-            zos.closeEntry();
 
-            OutputFormatter.printBoxedLine(doc, style, "Добавлен файл: " + fileName);
+            zos.closeEntry();
+            OutputFormatter.printBeautifulMessage(context.getDoc(), context.getStyle(),
+                String.format("Добавлен файл: %s (%,d байт)", entryPath, fileToZip.length()));
         }
+    }
+
+    private void showUsage(CommandContext context) throws Exception {
+        OutputFormatter.printBeautifulSection(context.getDoc(), context.getStyle(), "Использование команды zip");
+        OutputFormatter.printBeautifulMessage(context.getDoc(), context.getStyle(),
+            "zip <архив.zip> <файлы...>\n\n" +
+            "Создает ZIP архив из указанных файлов\n\n" +
+            "Примеры:\n" +
+            "  zip archive.zip file1.txt file2.txt\n" +
+            "  zip docs.zip *.doc *.pdf\n" +
+            "  zip backup.zip folder/");
+    }
+
+    @Override
+    public void executeCommand(String... args) throws Exception {
+        CommandContext context = new CommandContext("", args, doc, style, pathHolder);
+        execute(context);
     }
 
     @Override

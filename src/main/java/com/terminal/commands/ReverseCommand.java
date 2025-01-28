@@ -5,13 +5,12 @@ import java.io.FileInputStream;
 import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 import javax.swing.text.Style;
 import javax.swing.text.StyledDocument;
 
+import com.terminal.sdk.core.CommandContext;
 import com.terminal.sdk.system.CurrentPathHolder;
 import com.terminal.utils.OutputFormatter;
 
@@ -26,75 +25,58 @@ public class ReverseCommand extends AbstractCommand {
     }
 
     @Override
-    protected void initializeSubCommands() {
-        addSubCommand("strings", "извлечь строки из файла");
-        addSubCommand("header", "анализ заголовка файла");
-        addSubCommand("hex", "шестнадцатеричный дамп");
-        addSubCommand("disasm", "дизассемблировать");
-    }
-
-    @Override
-    public void executeCommand(String... args) {
+    public void execute(CommandContext context) {
         try {
+            String[] args = context.getArgs();
             if (args.length < 2) {
-                OutputFormatter.printBoxedHeader(doc, style, "Использование: reverse <операция> <файл>");
-                OutputFormatter.printBoxedLine(doc, style, "Операции:");
-                OutputFormatter.printBoxedLine(doc, style, "  strings     извлечь строки из файла");
-                OutputFormatter.printBoxedLine(doc, style, "  header      анализ заголовка файла");
-                OutputFormatter.printBoxedLine(doc, style, "  hex         шестнадцатеричный дамп");
-                OutputFormatter.printBoxedLine(doc, style, "  disasm      дизассемблировать");
-                OutputFormatter.printBoxedFooter(doc, style);
+                showUsage(context);
                 return;
             }
 
-            String operation = args[0].toLowerCase();
+            String subCommand = args[0];
             String fileName = args[1];
             File file = new File(pathHolder.getCurrentPath(), fileName);
 
             if (!file.exists()) {
-                OutputFormatter.printError(doc, style, "Файл не найден");
+                OutputFormatter.printError(context.getDoc(), context.getStyle(), "Файл не существует: " + fileName);
                 return;
             }
 
-            switch (operation) {
+            switch (subCommand) {
                 case "strings":
-                    extractStrings(file);
-                    break;
-                case "hex":
-                    hexDump(file);
-                    break;
-                case "analyze":
-                    analyzeFile(file);
+                    extractStrings(context, file);
                     break;
                 case "header":
-                    analyzeHeader(file);
+                    analyzeHeader(context, file);
+                    break;
+                case "hex":
+                    hexDump(context, file);
                     break;
                 case "disasm":
-                    disassemble(file);
+                    disassemble(context, file);
                     break;
                 default:
-                    OutputFormatter.printError(doc, style, "Неизвестная операция");
+                    OutputFormatter.printError(context.getDoc(), context.getStyle(), "Неизвестная подкоманда: " + subCommand);
+                    showUsage(context);
             }
         } catch (Exception e) {
             try {
-                OutputFormatter.printError(doc, style, e.getMessage());
+                OutputFormatter.printError(context.getDoc(), context.getStyle(), "Ошибка: " + e.getMessage());
             } catch (Exception ex) {
-                ex.printStackTrace();
+                System.err.println("Ошибка при выполнении команды: " + e.getMessage());
             }
         }
     }
 
-    private void extractStrings(File file) throws Exception {
-        OutputFormatter.printBoxedHeader(doc, style, "Извлечение строк");
-        OutputFormatter.printBoxedLine(doc, style, "Файл: " + file.getName());
-        OutputFormatter.printBoxedLine(doc, style, "");
+    private void extractStrings(CommandContext context, File file) throws Exception {
+        OutputFormatter.printBeautifulSection(context.getDoc(), context.getStyle(), "Извлечение строк из " + file.getName());
         
-        byte[] fileContent = Files.readAllBytes(file.toPath());
+        byte[] bytes = Files.readAllBytes(file.toPath());
         List<String> strings = new ArrayList<>();
         StringBuilder currentString = new StringBuilder();
         
-        for (byte b : fileContent) {
-            if (isPrintableChar(b)) {
+        for (byte b : bytes) {
+            if (isPrintable((char) b)) {
                 currentString.append((char) b);
             } else if (currentString.length() >= MIN_STRING_LENGTH) {
                 strings.add(currentString.toString());
@@ -108,125 +90,86 @@ public class ReverseCommand extends AbstractCommand {
             strings.add(currentString.toString());
         }
 
-        for (String str : strings) {
-            OutputFormatter.printBoxedLine(doc, style, str);
-        }
-        
-        OutputFormatter.printBoxedFooter(doc, style);
-    }
-
-    private void hexDump(File file) throws Exception {
-        OutputFormatter.printBoxedHeader(doc, style, "Шестнадцатеричный дамп");
-        OutputFormatter.printBoxedLine(doc, style, "Файл: " + file.getName());
-        OutputFormatter.printBoxedLine(doc, style, "");
-        
-        byte[] fileContent = Files.readAllBytes(file.toPath());
-        StringBuilder hex = new StringBuilder();
-        StringBuilder ascii = new StringBuilder();
-        
-        for (int i = 0; i < fileContent.length; i++) {
-            if (i % BYTES_PER_LINE == 0) {
-                if (i > 0) {
-                    OutputFormatter.printBoxedLine(doc, style, String.format("%s  |%s|", hex.toString(), ascii.toString()));
-                    hex.setLength(0);
-                    ascii.setLength(0);
-                }
-                OutputFormatter.printBoxedLine(doc, style, String.format("%08X  ", i));
+        if (!strings.isEmpty()) {
+            String[][] data = new String[strings.size()][2];
+            for (int i = 0; i < strings.size(); i++) {
+                data[i][0] = String.valueOf(i + 1);
+                data[i][1] = strings.get(i);
             }
             
-            hex.append(String.format("%02X ", fileContent[i]));
-            ascii.append(isPrintableChar(fileContent[i]) ? 
-                (char) fileContent[i] : '.');
+            OutputFormatter.printBeautifulTable(context.getDoc(), context.getStyle(),
+                new String[]{"#", "Строка"}, data);
+        } else {
+            OutputFormatter.printBeautifulMessage(context.getDoc(), context.getStyle(), "Строки не найдены");
         }
-        
-        if (hex.length() > 0) {
-            while (hex.length() < BYTES_PER_LINE * 3) {
-                hex.append("   ");
-            }
-            OutputFormatter.printBoxedLine(doc, style, String.format("%s  |%s|", hex.toString(), ascii.toString()));
-        }
-        
-        OutputFormatter.printBoxedFooter(doc, style);
     }
 
-    private void analyzeFile(File file) throws Exception {
-        OutputFormatter.printBoxedHeader(doc, style, "Анализ файла " + file.getName());
-        OutputFormatter.printBoxedLine(doc, style, "");
+    private void analyzeHeader(CommandContext context, File file) throws Exception {
+        OutputFormatter.printBeautifulSection(context.getDoc(), context.getStyle(), "Анализ заголовка " + file.getName());
         
-        OutputFormatter.printBoxedLine(doc, style, String.format("Размер: %d байт", file.length()));
-        
-        byte[] header = new byte[4];
         try (FileInputStream fis = new FileInputStream(file)) {
-            fis.read(header);
+            byte[] header = new byte[32];
+            int read = fis.read(header);
+            
+            String[][] data = new String[3][2];
+            data[0] = new String[]{"Размер файла", String.format("%,d байт", file.length())};
+            data[1] = new String[]{"Тип файла", detectFileType(header)};
+            data[2] = new String[]{"Сигнатура", bytesToHex(Arrays.copyOf(header, Math.min(read, 8)))};
+            
+            OutputFormatter.printBeautifulTable(context.getDoc(), context.getStyle(),
+                new String[]{"Параметр", "Значение"}, data);
         }
+    }
+
+    private void hexDump(CommandContext context, File file) throws Exception {
+        OutputFormatter.printBeautifulSection(context.getDoc(), context.getStyle(), "Шестнадцатеричный дамп " + file.getName());
         
-        String fileType = detectFileType(header);
-        OutputFormatter.printBoxedLine(doc, style, "Тип файла: " + fileType);
-        
-        byte[] content = Files.readAllBytes(file.toPath());
-        Map<Byte, Integer> byteStats = new HashMap<>();
-        for (byte b : content) {
-            byteStats.merge(b, 1, Integer::sum);
-        }
-        
-        OutputFormatter.printBoxedLine(doc, style, "\nСтатистика байтов:");
-        byteStats.entrySet().stream()
-            .sorted(Map.Entry.<Byte, Integer>comparingByValue().reversed())
-            .limit(10)
-            .forEach(entry -> {
-                try {
-                    OutputFormatter.printBoxedLine(doc, style, String.format("0x%02X: %d раз", 
-                        entry.getKey(), entry.getValue()));
-                } catch (Exception e) {
-                    e.printStackTrace();
+        try (FileInputStream fis = new FileInputStream(file)) {
+            byte[] buffer = new byte[BYTES_PER_LINE];
+            int offset = 0;
+            int read;
+            
+            while ((read = fis.read(buffer)) != -1) {
+                StringBuilder hex = new StringBuilder();
+                StringBuilder ascii = new StringBuilder();
+                
+                for (int i = 0; i < BYTES_PER_LINE; i++) {
+                    if (i < read) {
+                        hex.append(String.format("%02X ", buffer[i]));
+                        ascii.append(isPrintable((char) buffer[i]) ? (char) buffer[i] : '.');
+                    } else {
+                        hex.append("   ");
+                        ascii.append(" ");
+                    }
                 }
-            });
-    }
-
-    private void analyzeHeader(File file) throws Exception {
-        OutputFormatter.printBoxedHeader(doc, style, "Анализ заголовка");
-        OutputFormatter.printBoxedLine(doc, style, "Файл: " + file.getName());
-        OutputFormatter.printBoxedLine(doc, style, "");
-        
-        byte[] header = new byte[64];
-        try (FileInputStream fis = new FileInputStream(file)) {
-            fis.read(header);
-        }
-        
-        OutputFormatter.printBoxedLine(doc, style, "Заголовок в HEX:");
-        for (int i = 0; i < header.length; i++) {
-            if (i % 16 == 0) {
-                OutputFormatter.printBoxedLine(doc, style, String.format("\n%04X: ", i));
+                
+                OutputFormatter.printBeautifulMessage(context.getDoc(), context.getStyle(),
+                    String.format("%08X  %-48s  |%s|", offset, hex, ascii));
+                
+                offset += read;
+                if (offset >= 256) break; // Ограничиваем вывод
             }
-            OutputFormatter.printBoxedLine(doc, style, String.format("%02X ", header[i]));
         }
-        
-        OutputFormatter.printBoxedLine(doc, style, "\n\nСигнатура: ");
-        String signature = detectFileType(Arrays.copyOf(header, 4));
-        OutputFormatter.printBoxedLine(doc, style, signature + "\n\n");
-        
-        OutputFormatter.printBoxedFooter(doc, style);
     }
 
-    private void disassemble(File file) throws Exception {
-        OutputFormatter.printBoxedHeader(doc, style, "Дизассемблирование");
-        OutputFormatter.printBoxedLine(doc, style, "Файл: " + file.getName());
-        OutputFormatter.printBoxedLine(doc, style, "");
+    private void disassemble(CommandContext context, File file) throws Exception {
+        OutputFormatter.printBeautifulSection(context.getDoc(), context.getStyle(), "Дизассемблирование " + file.getName());
 
         byte[] fileContent = Files.readAllBytes(file.toPath());
         
         if (fileContent.length < 4) {
-            OutputFormatter.printBoxedLine(doc, style, "│ Ошибка: Файл слишком мал");
+            OutputFormatter.printError(context.getDoc(), context.getStyle(), "Файл слишком мал для анализа");
             return;
         }
 
         boolean isPE = fileContent[0] == 0x4D && fileContent[1] == 0x5A; // MZ
         boolean isELF = fileContent[0] == 0x7F && fileContent[1] == 0x45 && 
-                       fileContent[2] == 0x4C && fileContent[3] == 0x46;
+                       fileContent[2] == 0x4C && fileContent[3] == 0x46; // ELF
 
         if (!isPE && !isELF) {
-            OutputFormatter.printBoxedLine(doc, style, "│ Предупреждение: Файл не является исполняемым (PE/ELF)");
-            OutputFormatter.printBoxedLine(doc, style, "│ Попытка дизассемблировать как бинарный код...");
+            OutputFormatter.printBeautifulMessage(context.getDoc(), context.getStyle(),
+                "Предупреждение: Файл не является исполняемым (PE/ELF)\n" +
+                "Попытка дизассемблировать как бинарный код...");
         }
 
         int entryPoint = findEntryPoint(fileContent);
@@ -234,29 +177,59 @@ public class ReverseCommand extends AbstractCommand {
             entryPoint = 0;
         }
 
-        OutputFormatter.printBoxedLine(doc, style, String.format("│ Точка входа: 0x%08X", entryPoint));
-        OutputFormatter.printBoxedLine(doc, style, "├───────────────────────────────────────────────────────┤");
+        String[][] info = {
+            {"Тип файла", isPE ? "PE (Windows Executable)" : isELF ? "ELF (Linux Executable)" : "Бинарный файл"},
+            {"Точка входа", String.format("0x%08X", entryPoint)},
+            {"Размер", String.format("%,d байт", fileContent.length)}
+        };
+        
+        OutputFormatter.printBeautifulTable(context.getDoc(), context.getStyle(),
+            new String[]{"Параметр", "Значение"}, info);
 
+        OutputFormatter.printBeautifulMessage(context.getDoc(), context.getStyle(), "\nДизассемблированный код:");
+
+        List<String[]> instructions = new ArrayList<>();
         for (int i = entryPoint; i < Math.min(fileContent.length, entryPoint + 1000); i++) {
             try {
                 Instruction instr = decodeInstruction(fileContent, i);
                 if (instr != null) {
-                    OutputFormatter.printBoxedLine(doc, style, String.format("│ %08X: %-20s %s", 
-                        i, formatBytes(fileContent, i, instr.length), instr.mnemonic));
+                    instructions.add(new String[]{
+                        String.format("%08X", i),
+                        formatBytes(fileContent, i, instr.length),
+                        instr.mnemonic
+                    });
                     i += instr.length - 1;
                 } else {
-                    OutputFormatter.printBoxedLine(doc, style, String.format("│ %08X: %02X", i, fileContent[i]));
+                    instructions.add(new String[]{
+                        String.format("%08X", i),
+                        String.format("%02X", fileContent[i]),
+                        "DB " + String.format("%02X", fileContent[i])
+                    });
                 }
             } catch (Exception e) {
                 continue;
             }
         }
 
-        OutputFormatter.printBoxedFooter(doc, style);
+        if (!instructions.isEmpty()) {
+            OutputFormatter.printBeautifulTable(context.getDoc(), context.getStyle(),
+                new String[]{"Смещение", "Байты", "Инструкция"},
+                instructions.toArray(new String[0][0]));
+        }
+    }
+
+    private static class Instruction {
+        int length;
+        String mnemonic;
+
+        Instruction(int length, String mnemonic) {
+            this.length = length;
+            this.mnemonic = mnemonic;
+        }
     }
 
     private int findEntryPoint(byte[] fileContent) {
-        if (fileContent[0] == 0x4D && fileContent[1] == 0x5A) {
+        if (fileContent[0] == 0x4D && fileContent[1] == 0x5A) { // PE
             try {
                 int peOffset = readDword(fileContent, 0x3C);
                 if (peOffset > 0 && peOffset < fileContent.length - 4) {
@@ -268,8 +241,8 @@ public class ReverseCommand extends AbstractCommand {
                 return -1;
             }
         }
-        else if (fileContent[0] == 0x7F && fileContent[1] == 0x45 && 
-                fileContent[2] == 0x4C && fileContent[3] == 0x46) {
+        else if (fileContent[0] == 0x7F && fileContent[1] == 0x45 && // ELF
+                 fileContent[2] == 0x4C && fileContent[3] == 0x46) {
             try {
                 return readDword(fileContent, 0x18);
             } catch (Exception e) {
@@ -291,17 +264,7 @@ public class ReverseCommand extends AbstractCommand {
         for (int i = 0; i < length && offset + i < data.length; i++) {
             sb.append(String.format("%02X ", data[offset + i]));
         }
-        return sb.toString();
-    }
-
-    private static class Instruction {
-        int length;
-        String mnemonic;
-
-        Instruction(int length, String mnemonic) {
-            this.length = length;
-            this.mnemonic = mnemonic;
-        }
+        return sb.toString().trim();
     }
 
     private Instruction decodeInstruction(byte[] data, int offset) {
@@ -377,32 +340,41 @@ public class ReverseCommand extends AbstractCommand {
         return "???";
     }
 
-    private boolean isPrintableChar(byte b) {
-        return b >= 32 && b < 127;
+    private boolean isPrintable(char c) {
+        return c >= 32 && c < 127;
+    }
+
+    private String bytesToHex(byte[] bytes) {
+        StringBuilder result = new StringBuilder();
+        for (byte b : bytes) {
+            result.append(String.format("%02X ", b));
+        }
+        return result.toString().trim();
     }
 
     private String detectFileType(byte[] header) {
-        if (header.length < 4) return "Неизвестный";
-        
-        if (header[0] == 0x4D && header[1] == 0x5A) // MZ
-            return "Исполняемый файл (EXE/DLL)";
-        if (header[0] == 0x7F && header[1] == 0x45 && // ELF
-            header[2] == 0x4C && header[3] == 0x46)
-            return "Исполняемый файл Linux (ELF)";
-        if (header[0] == (byte)0xFF && header[1] == (byte)0xD8)
-            return "Изображение JPEG";
-        if (header[0] == (byte)0x89 && header[1] == 0x50)
-            return "Изображение PNG";
-        if (header[0] == 0x50 && header[1] == 0x4B)
-            return "Архив ZIP";
-        if (header[0] == 0x7F && header[1] == 0x45)
-            return "Файл ELF";
-        
+        if (header[0] == 'M' && header[1] == 'Z') return "Исполняемый файл (EXE)";
+        if (header[0] == 'P' && header[1] == 'K') return "Архив ZIP";
+        if (header[0] == (byte)0xFF && header[1] == (byte)0xD8) return "Изображение JPEG";
+        if (header[0] == (byte)0x89 && header[1] == 'P') return "Изображение PNG";
+        if (header[0] == '%' && header[1] == 'P') return "Документ PDF";
         return "Неизвестный формат";
     }
 
+    private void showUsage(CommandContext context) throws Exception {
+        OutputFormatter.printBeautifulSection(context.getDoc(), context.getStyle(), "Использование команды reverse");
+        OutputFormatter.printBeautifulMessage(context.getDoc(), context.getStyle(),
+            "reverse <подкоманда> <файл>\n\n" +
+            "Подкоманды:\n" +
+            "  strings  - извлечь текстовые строки из файла\n" +
+            "  header   - анализ заголовка файла\n" +
+            "  hex      - шестнадцатеричный дамп файла\n" +
+            "  disasm   - дизассемблировать файл");
+    }
+
     @Override
-    public String getDescription() {
-        return "инструменты для реверс-инжиниринга";
+    public void executeCommand(String... args) throws Exception {
+        CommandContext context = new CommandContext("", args, doc, style, pathHolder);
+        execute(context);
     }
 } 

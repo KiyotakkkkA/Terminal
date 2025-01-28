@@ -22,6 +22,11 @@ public class SimpleCommand extends Command {
     }
     
     @Override
+    public void execute(CommandContext context) {
+        execute(context.getArgs());
+    }
+    
+    @Override
     public void execute(String[] args) {
     }
     
