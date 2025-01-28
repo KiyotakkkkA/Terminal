@@ -12,11 +12,11 @@ import com.terminal.utils.OutputFormatter;
 public class PingCommand extends AbstractCommand {
 
     public PingCommand(StyledDocument doc, Style style) {
-        super(doc, style);
+        super(doc, style, null, "ping", "Проверка доступности хоста", "NETWORK");
     }
 
     @Override
-    public void execute(String... args) {
+    public void executeCommand(String... args) {
         try {
             if (args.length < 1) {
                 showUsage();

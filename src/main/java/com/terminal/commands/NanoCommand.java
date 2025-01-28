@@ -7,7 +7,7 @@ import java.io.FileReader;
 import javax.swing.text.Style;
 import javax.swing.text.StyledDocument;
 
-import com.terminal.sdk.CurrentPathHolder;
+import com.terminal.sdk.system.CurrentPathHolder;
 import com.terminal.utils.OutputFormatter;
 
 public class NanoCommand extends AbstractCommand {
@@ -19,7 +19,7 @@ public class NanoCommand extends AbstractCommand {
     }
 
     @Override
-    public void execute(String... args) {
+    public void executeCommand(String... args) {
         try {
             if (args.length < 1) {
                 showUsage();

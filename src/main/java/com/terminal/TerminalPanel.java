@@ -35,7 +35,6 @@ import com.terminal.commands.CryptoCommand;
 import com.terminal.commands.DnsCommand;
 import com.terminal.commands.ExitCommand;
 import com.terminal.commands.FindCommand;
-import com.terminal.commands.FuzzCommand;
 import com.terminal.commands.GrepCommand;
 import com.terminal.commands.HashCommand;
 import com.terminal.commands.HelpCommand;
@@ -47,7 +46,6 @@ import com.terminal.commands.NmapCommand;
 import com.terminal.commands.PingCommand;
 import com.terminal.commands.PluginsCommand;
 import com.terminal.commands.PortScanCommand;
-import com.terminal.commands.ProcessAnalyzerCommand;
 import com.terminal.commands.PsCommand;
 import com.terminal.commands.PwdCommand;
 import com.terminal.commands.ReverseCommand;
@@ -62,20 +60,26 @@ import com.terminal.commands.UnzipCommand;
 import com.terminal.commands.WebCommand;
 import com.terminal.commands.WifiScanCommand;
 import com.terminal.commands.ZipCommand;
-import com.terminal.sdk.Command;
-import com.terminal.sdk.CommandCategory;
-import com.terminal.sdk.CommandInfo;
-import com.terminal.sdk.CurrentPathHolder;
-import com.terminal.sdk.EventManager;
-import com.terminal.sdk.EventType;
-import com.terminal.sdk.TerminalEvent;
+import com.terminal.sdk.AbstractAsyncCommand;
+import com.terminal.sdk.core.AsyncCommand;
+import com.terminal.sdk.core.AsyncTaskManager;
+import com.terminal.sdk.core.Command;
+import com.terminal.sdk.core.CommandCategory;
+import com.terminal.sdk.core.CommandInfo;
+import com.terminal.sdk.events.EventType;
+import com.terminal.sdk.events.TerminalEvent;
+import com.terminal.sdk.services.IEventManager;
+import com.terminal.sdk.services.IPluginManager;
+import com.terminal.sdk.services.IThemeManager;
+import com.terminal.sdk.services.ServiceLocator;
+import com.terminal.sdk.services.TerminalService;
+import com.terminal.sdk.system.CurrentPathHolder;
 import com.terminal.utils.BannerGenerator;
 import com.terminal.utils.InputCallback;
 import com.terminal.utils.PluginManager;
 import com.terminal.utils.SidebarManager;
-import com.terminal.utils.ThemeManager;
 
-public class TerminalPanel extends JPanel implements CurrentPathHolder {
+public class TerminalPanel extends JPanel {
     private Color backgroundColor = new Color(13, 17, 23);
     private Color defaultTextColor = new Color(201, 209, 217);
     private Color usernameColor = new Color(88, 166, 255);
@@ -103,6 +107,7 @@ public class TerminalPanel extends JPanel implements CurrentPathHolder {
     private boolean isInputMode = false;
     private StringBuilder inputBuffer;
     private InputCallback inputCallback;
+    private CurrentPathHolder pathHolder;
     private String savedContent;
     private final TerminalFrame frame;
     private String currentSuggestion = "";
@@ -113,13 +118,32 @@ public class TerminalPanel extends JPanel implements CurrentPathHolder {
     private static final int FONT_SIZE = 14;
     private static final int PADDING = 12;
     private final SidebarManager sidebarManager;
+    private final IEventManager eventManager;
+    private final IThemeManager themeManager;
+    private final IPluginManager pluginManager;
+    private boolean isLocked = false;
+    private Command currentCommand;
+    private static int nextId = 0;
+    private final int terminalId;
 
     public TerminalPanel(TerminalFrame frame, String version) {
         this.frame = frame;
+        this.terminalId = nextId++;
+        
+        ServiceLocator locator = ServiceLocator.getInstance();
+        this.eventManager = locator.resolve(IEventManager.class);
+        this.themeManager = locator.resolve(IThemeManager.class);
+        this.pluginManager = locator.resolve(IPluginManager.class);
+        
+        // Регистрируем текущий терминал
+        TerminalService.getInstance().setTerminalPanel(this);
+        
         setLayout(new BorderLayout());
         
         sidebarManager = new SidebarManager(this);
         add(sidebarManager.getSidebarPanel(), BorderLayout.WEST);
+        
+        pathHolder = CurrentPathHolder.getInstance();
         
         addFocusListener(new java.awt.event.FocusAdapter() {
             @Override
@@ -143,7 +167,6 @@ public class TerminalPanel extends JPanel implements CurrentPathHolder {
         
         setFocusable(true);
         
-        ThemeManager themeManager = ThemeManager.getInstance();
         backgroundColor = Color.decode(themeManager.getThemeColor("background"));
         defaultTextColor = Color.decode(themeManager.getThemeColor("foreground"));
         usernameColor = Color.decode(themeManager.getThemeColor("username"));
@@ -248,13 +271,13 @@ public class TerminalPanel extends JPanel implements CurrentPathHolder {
 
         PluginManager.getInstance().loadPlugins();
         
-        EventManager.getInstance().subscribe(EventType.STATE_CHANGED, this::handleStateChanged);
-        EventManager.getInstance().subscribe(EventType.COMMAND_COMPLETED, this::handleCommandCompleted);
-        EventManager.getInstance().subscribe(EventType.COMMAND_FAILED, this::handleCommandFailed);
-        EventManager.getInstance().subscribe(EventType.OUTPUT_UPDATED, this::handleOutputUpdated);
-        EventManager.getInstance().subscribe(EventType.THEME_CHANGED, this::handleThemeChanged);
+        eventManager.subscribe(EventType.STATE_CHANGED, this::handleStateChanged);
+        eventManager.subscribe(EventType.COMMAND_COMPLETED, this::handleCommandCompleted);
+        eventManager.subscribe(EventType.COMMAND_FAILED, this::handleCommandFailed);
+        eventManager.subscribe(EventType.OUTPUT_UPDATED, this::handleOutputUpdated);
+        eventManager.subscribe(EventType.THEME_CHANGED, this::handleThemeChanged);
         
-        commands.putAll(PluginManager.getInstance().getPluginCommands());
+        commands.putAll(pluginManager.getPluginCommands());
 
         textPane.addMouseListener(new MouseListener() {
             @Override
@@ -274,170 +297,60 @@ public class TerminalPanel extends JPanel implements CurrentPathHolder {
             @Override
             public void mouseExited(MouseEvent e) {}
         });
-
-        textPane.addKeyListener(new KeyAdapter() {
-            @Override
-            public void keyPressed(KeyEvent e) {
-                if (e.getKeyCode() == KeyEvent.VK_C && (e.getModifiersEx() & KeyEvent.CTRL_DOWN_MASK) != 0) {
-                    e.consume();
-                    if (!textPane.isEditable()) {
-                        EventManager.getInstance().emit(new TerminalEvent(EventType.COMMAND_INTERRUPTED, e));
-                        textPane.setEditable(true);
-                        textPane.setEnabled(true);
-                        appendString("\n^C\n", errorStyle);
-                        displayPrompt();
-                        return;
-                    }
-                }
-
-                if (e.getKeyCode() == KeyEvent.VK_D && (e.getModifiersEx() & KeyEvent.CTRL_DOWN_MASK) != 0) {
-                    if (isInputMode) {
-                        e.consume();
-                        finishInput();
-                        return;
-                    }
-                }
-
-                if (!isInputMode) {
-                    int caretPosition = textPane.getCaretPosition();
-                    if (caretPosition < userInputStart) {
-                        e.consume();
-                        textPane.setCaretPosition(textPane.getDocument().getLength());
-                        return;
-                    }
-
-                    if (e.getKeyCode() == KeyEvent.VK_BACK_SPACE || 
-                        e.getKeyCode() == KeyEvent.VK_DELETE ||
-                        (e.getKeyCode() == KeyEvent.VK_A && e.isControlDown()) ||
-                        (e.getKeyCode() == KeyEvent.VK_X && e.isControlDown())) {
-                        if (textPane.getSelectionStart() < userInputStart) {
-                            e.consume();
-                            return;
-                        }
-                    }
-                }
-
-                if (!textPane.isEditable() && !isInputMode) {
-                    if (e.getKeyCode() != KeyEvent.VK_TAB) {
-                        textPane.setEditable(true);
-                        userInputStart = textPane.getDocument().getLength();
-                        textPane.setCaretPosition(userInputStart);
-                    }
-                }
-
-                if (e.getKeyCode() == KeyEvent.VK_ENTER) {
-                    e.consume();
-                    if (isInputMode) {
-                        try {
-                            StyledDocument doc = textPane.getStyledDocument();
-                            doc.insertString(textPane.getCaretPosition(), "\n", defaultStyle);
-                        } catch (BadLocationException ex) {
-                            ex.printStackTrace();
-                        }
-                    } else {
-                        if (!currentSuggestion.isEmpty()) {
-                            completeSuggestion();
-                        }
-                        String input = getCurrentInputLine();
-                        if (!input.trim().isEmpty()) {
-                            executeCommand();
-                        }
-                    }
-                    return;
-                }
-
-                if (e.getKeyCode() == KeyEvent.VK_TAB) {
-                    e.consume();
-                    if (!currentSuggestion.isEmpty()) {
-                        completeSuggestion();
-                    }
-                    return;
-                }
-
-                if (e.getKeyCode() == KeyEvent.VK_BACK_SPACE) {
-                    if (!isInputMode) {
-                        if (!currentSuggestion.isEmpty()) {
-                            e.consume();
-                            removeSuggestion();
-                            return;
-                        }
-                        if (textPane.getCaretPosition() <= userInputStart) {
-                            e.consume();
-                        }
-                    }
-                }
-
-                if (e.getKeyCode() == KeyEvent.VK_LEFT || e.getKeyCode() == KeyEvent.VK_RIGHT) {
-                    if (!isInputMode) {
-                        if (textPane.getCaretPosition() < userInputStart) {
-                            e.consume();
-                            textPane.setCaretPosition(userInputStart);
-                        }
-                    }
-                }
-
-                if (e.getKeyCode() == KeyEvent.VK_UP) {
-                    e.consume();
-                    showPreviousCommand();
-                } else if (e.getKeyCode() == KeyEvent.VK_DOWN) {
-                    e.consume();
-                    showNextCommand();
-                }
-            }
-        });
     }
 
     private void initializeCommands() {
         StyledDocument doc = textPane.getStyledDocument();
         
         // Файловые операции
-        registerCommand("pwd", new PwdCommand(doc, defaultStyle, this), CommandCategory.FILE_OPERATIONS);
-        registerCommand("ls", new LsCommand(doc, defaultStyle, directoryStyle, this), CommandCategory.FILE_OPERATIONS);
-        registerCommand("cd", new CdCommand(doc, defaultStyle, this), CommandCategory.FILE_OPERATIONS);
-        registerCommand("mkdir", new MkdirCommand(doc, defaultStyle, this), CommandCategory.FILE_OPERATIONS);
-        registerCommand("rmdir", new RmdirCommand(doc, defaultStyle, this), CommandCategory.FILE_OPERATIONS);
-        registerCommand("cat", new CatCommand(doc, defaultStyle, this, commands), CommandCategory.FILE_OPERATIONS);
-        registerCommand("touch", new TouchCommand(doc, defaultStyle, this), CommandCategory.FILE_OPERATIONS);
-        registerCommand("nano", new NanoCommand(doc, defaultStyle, this), CommandCategory.FILE_OPERATIONS);
-        registerCommand("rm", new RmCommand(doc, defaultStyle, this), CommandCategory.FILE_OPERATIONS);
-
+        registerCommand("pwd", new PwdCommand(doc, defaultStyle, pathHolder), CommandCategory.FILE_OPERATIONS);
+        registerCommand("ls", new LsCommand(doc, defaultStyle, directoryStyle, pathHolder), CommandCategory.FILE_OPERATIONS);
+        registerCommand("cd", new CdCommand(doc, defaultStyle, pathHolder), CommandCategory.FILE_OPERATIONS);
+        registerCommand("mkdir", new MkdirCommand(doc, defaultStyle, pathHolder), CommandCategory.FILE_OPERATIONS);
+        registerCommand("rmdir", new RmdirCommand(doc, defaultStyle, pathHolder), CommandCategory.FILE_OPERATIONS);
+        registerCommand("cat", new CatCommand(doc, defaultStyle, pathHolder, commands), CommandCategory.FILE_OPERATIONS);
+        registerCommand("touch", new TouchCommand(doc, defaultStyle, pathHolder), CommandCategory.FILE_OPERATIONS);
+        registerCommand("nano", new NanoCommand(doc, defaultStyle, pathHolder), CommandCategory.FILE_OPERATIONS);
+        registerCommand("rm", new RmCommand(doc, defaultStyle, pathHolder), CommandCategory.FILE_OPERATIONS);
+        
         // Сетевые команды
         registerCommand("ping", new PingCommand(doc, defaultStyle), CommandCategory.NETWORK);
-        registerCommand("netstat", new NetstatCommand(doc, defaultStyle), CommandCategory.NETWORK);
-        registerCommand("trace", new TraceCommand(doc, defaultStyle), CommandCategory.NETWORK);
-        registerCommand("dns", new DnsCommand(doc, defaultStyle, this), CommandCategory.NETWORK);
+        registerCommand("netstat", new NetstatCommand(doc, defaultStyle, promptStyle), CommandCategory.NETWORK);
+        registerCommand("trace", new TraceCommand(doc, defaultStyle, promptStyle), CommandCategory.NETWORK);
+        registerCommand("dns", new DnsCommand(doc, defaultStyle, pathHolder), CommandCategory.NETWORK);
         registerCommand("nmap", new NmapCommand(doc, defaultStyle), CommandCategory.NETWORK);
-        registerCommand("portscan", new PortScanCommand(doc, defaultStyle), CommandCategory.NETWORK);
-        registerCommand("wifi", new WifiScanCommand(doc, defaultStyle), CommandCategory.NETWORK);
-        registerCommand("web", new WebCommand(doc, defaultStyle), CommandCategory.NETWORK);
-        registerCommand("con", new ConCommand(doc, defaultStyle, promptStyle), CommandCategory.NETWORK);
-
+        registerCommand("portscan", new PortScanCommand(doc, defaultStyle, promptStyle), CommandCategory.NETWORK);
+        registerCommand("wifi", new WifiScanCommand(doc, defaultStyle, promptStyle, pathHolder), CommandCategory.NETWORK);
+        registerCommand("web", new WebCommand(doc, defaultStyle, pathHolder), CommandCategory.NETWORK);
+        registerCommand("con", new ConCommand(doc, defaultStyle, promptStyle, pathHolder), CommandCategory.NETWORK);
+        
+        // Утилиты
+        registerCommand("grep", new GrepCommand(doc, defaultStyle, pathHolder), CommandCategory.SEARCH_AND_PROCESS);
+        registerCommand("find", new FindCommand(doc, defaultStyle, pathHolder), CommandCategory.SEARCH_AND_PROCESS);
+        registerCommand("zip", new ZipCommand(doc, defaultStyle, pathHolder), CommandCategory.SEARCH_AND_PROCESS);
+        registerCommand("unzip", new UnzipCommand(doc, defaultStyle, pathHolder), CommandCategory.SEARCH_AND_PROCESS);
+        registerCommand("reverse", new ReverseCommand(doc, defaultStyle, pathHolder), CommandCategory.SEARCH_AND_PROCESS);
+        registerCommand("hash", new HashCommand(doc, defaultStyle, pathHolder), CommandCategory.SEARCH_AND_PROCESS);
+        registerCommand("crypto", new CryptoCommand(doc, defaultStyle, pathHolder), CommandCategory.SEARCH_AND_PROCESS);
+        
         // Системные команды
-        registerCommand("ps", new PsCommand(doc, defaultStyle), CommandCategory.SYSTEM);
-        registerCommand("sys", new SysCommand(doc, defaultStyle), CommandCategory.SYSTEM);
-        registerCommand("procanalyze", new ProcessAnalyzerCommand(doc, defaultStyle), CommandCategory.SYSTEM);
-        registerCommand("cls", new ClearCommand(textPane), CommandCategory.SYSTEM);
-        registerCommand("plugins", new PluginsCommand(doc, defaultStyle), CommandCategory.SYSTEM);
-        registerCommand("theme", new ThemeCommand(doc, defaultStyle), CommandCategory.SYSTEM);
+        registerCommand("ps", new PsCommand(doc, defaultStyle, promptStyle), CommandCategory.SYSTEM);
+        registerCommand("sys", new SysCommand(doc, defaultStyle, promptStyle), CommandCategory.SYSTEM);
+        registerCommand("cls", new ClearCommand(doc, defaultStyle, pathHolder), CommandCategory.SYSTEM);
+        registerCommand("plugins", new PluginsCommand(doc, defaultStyle, pathHolder), CommandCategory.SYSTEM);
+        registerCommand("theme", new ThemeCommand(doc, defaultStyle, pathHolder), CommandCategory.SYSTEM);
         registerCommand("split", new SplitCommand(doc, defaultStyle, frame), CommandCategory.SYSTEM);
-
-        // Поиск и обработка
-        registerCommand("find", new FindCommand(doc, defaultStyle, this), CommandCategory.SEARCH_AND_PROCESS);
-        registerCommand("grep", new GrepCommand(doc, defaultStyle, this), CommandCategory.SEARCH_AND_PROCESS);
-        registerCommand("zip", new ZipCommand(doc, defaultStyle, this), CommandCategory.SEARCH_AND_PROCESS);
-        registerCommand("unzip", new UnzipCommand(doc, defaultStyle, this), CommandCategory.SEARCH_AND_PROCESS);
-        registerCommand("hash", new HashCommand(doc, defaultStyle, this), CommandCategory.SEARCH_AND_PROCESS);
-        registerCommand("crypto", new CryptoCommand(doc, defaultStyle, this), CommandCategory.SEARCH_AND_PROCESS);
-        registerCommand("fuzz", new FuzzCommand(doc, defaultStyle), CommandCategory.SEARCH_AND_PROCESS);
-        registerCommand("reverse", new ReverseCommand(doc, defaultStyle, this), CommandCategory.SEARCH_AND_PROCESS);
-
+        
         // Служебные команды
-        registerCommand("help", new HelpCommand(doc, defaultStyle, commands), CommandCategory.SYSTEM);
+        registerCommand("help", new HelpCommand(doc, defaultStyle, promptStyle, pathHolder, commands), CommandCategory.SYSTEM);
         registerCommand("exit", new ExitCommand(doc, defaultStyle, () -> System.exit(0)), CommandCategory.SYSTEM);
+        
+        // Загружаем команды плагинов
+        commands.putAll(pluginManager.getPluginCommands());
     }
 
     private void registerCommand(String name, Command command, CommandCategory category) {
-        commands.put(name, new CommandInfo(name, command, category));
+        commands.put(name, new CommandInfo(name, command.getDescription(), category.name(), command));
     }
 
     private void printWelcomeMessage(String version) {
@@ -453,119 +366,6 @@ public class TerminalPanel extends JPanel implements CurrentPathHolder {
         StyleConstants.setBold(welcomeStyle, true);
         
         appendString(banner, welcomeStyle);
-    }
-
-    private void setupKeyListeners() {
-        textPane.addKeyListener(new KeyAdapter() {
-            @Override
-            public void keyPressed(KeyEvent e) {
-                if (e.getKeyCode() == KeyEvent.VK_C && (e.getModifiersEx() & KeyEvent.CTRL_DOWN_MASK) != 0) {
-                    e.consume();
-                    if (!textPane.isEditable()) {
-                        EventManager.getInstance().emit(new TerminalEvent(EventType.COMMAND_INTERRUPTED, e));
-                        textPane.setEditable(true);
-                        textPane.setEnabled(true);
-                        appendString("\n^C\n", errorStyle);
-                        displayPrompt();
-                        return;
-                    }
-                }
-
-                if (e.getKeyCode() == KeyEvent.VK_D && (e.getModifiersEx() & KeyEvent.CTRL_DOWN_MASK) != 0) {
-                    if (isInputMode) {
-                        e.consume();
-                        finishInput();
-                        return;
-                    }
-                }
-
-                if (!isInputMode) {
-                    int caretPosition = textPane.getCaretPosition();
-                    if (caretPosition < userInputStart) {
-                        e.consume();
-                        textPane.setCaretPosition(textPane.getDocument().getLength());
-                        return;
-                    }
-
-                    if (e.getKeyCode() == KeyEvent.VK_BACK_SPACE || 
-                        e.getKeyCode() == KeyEvent.VK_DELETE ||
-                        (e.getKeyCode() == KeyEvent.VK_A && e.isControlDown()) ||
-                        (e.getKeyCode() == KeyEvent.VK_X && e.isControlDown())) {
-                        if (textPane.getSelectionStart() < userInputStart) {
-                            e.consume();
-                            return;
-                        }
-                    }
-                }
-
-                if (!textPane.isEditable() && !isInputMode) {
-                    if (e.getKeyCode() != KeyEvent.VK_TAB) {
-                        textPane.setEditable(true);
-                        userInputStart = textPane.getDocument().getLength();
-                        textPane.setCaretPosition(userInputStart);
-                    }
-                }
-
-                if (e.getKeyCode() == KeyEvent.VK_ENTER) {
-                    e.consume();
-                    if (isInputMode) {
-                        try {
-                            StyledDocument doc = textPane.getStyledDocument();
-                            doc.insertString(textPane.getCaretPosition(), "\n", defaultStyle);
-                        } catch (BadLocationException ex) {
-                            ex.printStackTrace();
-                        }
-                    } else {
-                        if (!currentSuggestion.isEmpty()) {
-                            completeSuggestion();
-                        }
-                        String input = getCurrentInputLine();
-                        if (!input.trim().isEmpty()) {
-                            executeCommand();
-                        }
-                    }
-                    return;
-                }
-
-                if (e.getKeyCode() == KeyEvent.VK_TAB) {
-                    e.consume();
-                    if (!currentSuggestion.isEmpty()) {
-                        completeSuggestion();
-                    }
-                    return;
-                }
-
-                if (e.getKeyCode() == KeyEvent.VK_BACK_SPACE) {
-                    if (!isInputMode) {
-                        if (!currentSuggestion.isEmpty()) {
-                            e.consume();
-                            removeSuggestion();
-                            return;
-                        }
-                        if (textPane.getCaretPosition() <= userInputStart) {
-                            e.consume();
-                        }
-                    }
-                }
-
-                if (e.getKeyCode() == KeyEvent.VK_LEFT || e.getKeyCode() == KeyEvent.VK_RIGHT) {
-                    if (!isInputMode) {
-                        if (textPane.getCaretPosition() < userInputStart) {
-                            e.consume();
-                            textPane.setCaretPosition(userInputStart);
-                        }
-                    }
-                }
-
-                if (e.getKeyCode() == KeyEvent.VK_UP) {
-                    e.consume();
-                    showPreviousCommand();
-                } else if (e.getKeyCode() == KeyEvent.VK_DOWN) {
-                    e.consume();
-                    showNextCommand();
-                }
-            }
-        });
     }
 
     private void displayPrompt() {
@@ -605,66 +405,58 @@ public class TerminalPanel extends JPanel implements CurrentPathHolder {
     }
 
     private void executeCommand() {
-        if (!isActive()) {
+        if (isLocked) {
             return;
         }
         
         try {
             String commandLine = getCurrentInputLine();
-            
             if (commandLine.trim().isEmpty()) {
                 return;
             }
             
             commandHistory.add(commandLine);
             historyIndex = commandHistory.size();
-            
             sidebarManager.addToHistory(commandLine);
             
             String[] parts = commandLine.trim().split("\\s+");
             if (parts.length > 0) {
                 String commandName = parts[0].toLowerCase();
                 CommandInfo commandInfo = commands.get(commandName);
+                appendString("\n", defaultStyle);
 
                 if (commandInfo == null) {
-                    appendString("\n", defaultStyle);
                     appendString("Ошибка: Команда не найдена: " + commandName + "\n", errorStyle);
                     displayPrompt();
                 } else {
                     String[] args = new String[parts.length - 1];
                     System.arraycopy(parts, 1, args, 0, args.length);
                     
-                    Command command = commandInfo.getCommand();
-                    if (command.isLongRunning()) {
-                        textPane.setEditable(false);
-                        textPane.setEnabled(true);
+                    currentCommand = commandInfo.getCommand();
+                    
+                    if (currentCommand instanceof AbstractAsyncCommand || currentCommand instanceof AsyncCommand) {
+                        lock();
                         
-                        command.executeAsync(args)
-                            .thenRun(() -> SwingUtilities.invokeLater(() -> {
-                                textPane.setEditable(true);
-                                textPane.requestFocusInWindow();
-                                userInputStart = textPane.getDocument().getLength();
-                                displayPrompt();
-                            }))
-                            .exceptionally(e -> {
-                                SwingUtilities.invokeLater(() -> {
-                                    textPane.setEditable(true);
-                                    textPane.requestFocusInWindow();
-                                    userInputStart = textPane.getDocument().getLength();
-                                    appendString("\n", defaultStyle);
-                                    appendString("Ошибка: " + e.getMessage() + "\n", errorStyle);
-                                    displayPrompt();
-                                });
-                                return null;
-                            });
-                    } else {
                         try {
-                            command.execute(args);
+                            currentCommand.execute(args);
                         } catch (Exception e) {
+                            currentCommand = null;
+                            unlock();
                             appendString("\n", defaultStyle);
                             appendString("Ошибка: " + e.getMessage() + "\n", errorStyle);
+                            displayPrompt();
                         }
-                        displayPrompt();
+                    } else {
+                        try {
+                            currentCommand.execute(args);
+                            currentCommand = null;
+                            displayPrompt();
+                        } catch (Exception e) {
+                            currentCommand = null;
+                            appendString("\n", defaultStyle);
+                            appendString("Ошибка: " + e.getMessage() + "\n", errorStyle);
+                            displayPrompt();
+                        }
                     }
                 }
             }
@@ -673,6 +465,26 @@ public class TerminalPanel extends JPanel implements CurrentPathHolder {
             appendString("\n", defaultStyle);
             appendString("Ошибка: " + e.getMessage() + "\n", errorStyle);
             displayPrompt();
+        }
+    }
+
+    private void handleCtrlC() {
+        if (currentCommand instanceof AbstractAsyncCommand) {
+            AbstractAsyncCommand asyncCommand = (AbstractAsyncCommand) currentCommand;
+            
+            lock();
+            
+            AsyncTaskManager.getInstance().cancelAllTasks(terminalId);
+            
+            asyncCommand.interrupt();
+            
+            SwingUtilities.invokeLater(() -> {
+                currentCommand = null;
+                appendString("\n^C\n", errorStyle);
+                unlock();
+                userInputStart = textPane.getDocument().getLength();
+                displayPrompt();
+            });
         }
     }
 
@@ -706,14 +518,12 @@ public class TerminalPanel extends JPanel implements CurrentPathHolder {
         }
     }
 
-    @Override
     public String getCurrentPath() {
-        return currentPath;
+        return pathHolder.getCurrentPath();
     }
 
-    @Override
     public void setCurrentPath(String path) {
-        this.currentPath = path;
+        pathHolder.setCurrentPath(path);
     }
 
     public void startInputMode(InputCallback callback, String initialText) {
@@ -810,13 +620,13 @@ public class TerminalPanel extends JPanel implements CurrentPathHolder {
                 
                 CommandInfo commandInfo = commands.get(commandPart);
                 if (commandInfo != null) {
-                    List<String> suggestions = commandInfo.getCommand().getSuggestions(
+                    String[] suggestions = commandInfo.getCommand().getSuggestions(
                         Arrays.copyOfRange(parts, 1, parts.length)
                     );
                     
-                    if (!suggestions.isEmpty()) {
+                    if (suggestions.length > 0) {
                         String lastPart = parts[parts.length - 1];
-                        String suggestion = suggestions.get(0);
+                        String suggestion = suggestions[0];
                         
                         if (suggestion.toLowerCase().startsWith(lastPart.toLowerCase()) && 
                             !suggestion.equalsIgnoreCase(lastPart)) {
@@ -944,6 +754,7 @@ public class TerminalPanel extends JPanel implements CurrentPathHolder {
         SwingUtilities.invokeLater(() -> {
             if (event.getData() != null) {
                 appendString(event.getData().toString() + "\n", defaultStyle);
+                userInputStart = textPane.getDocument().getLength();
             }
         });
     }
@@ -958,17 +769,15 @@ public class TerminalPanel extends JPanel implements CurrentPathHolder {
 
     private void applyTheme(String themeName) {
         try {
-            com.google.gson.JsonObject theme = ThemeManager.getInstance().getCurrentTheme();
+            backgroundColor = Color.decode(themeManager.getThemeColor("background"));
+            defaultTextColor = Color.decode(themeManager.getThemeColor("foreground"));
+            usernameColor = Color.decode(themeManager.getThemeColor("username"));
+            directoryColor = Color.decode(themeManager.getThemeColor("directory"));
+            errorColor = Color.decode(themeManager.getThemeColor("error"));
+            successColor = Color.decode(themeManager.getThemeColor("success"));
+            suggestionColor = Color.decode(themeManager.getThemeColor("suggestion"));
+            promptColor = Color.decode(themeManager.getThemeColor("prompt"));
             
-            backgroundColor = Color.decode(theme.get("background").getAsString());
-            defaultTextColor = Color.decode(theme.get("foreground").getAsString());
-            usernameColor = Color.decode(theme.get("username").getAsString());
-            directoryColor = Color.decode(theme.get("directory").getAsString());
-            errorColor = Color.decode(theme.get("error").getAsString());
-            successColor = Color.decode(theme.get("success").getAsString());
-            suggestionColor = Color.decode(theme.get("suggestion").getAsString());
-            promptColor = Color.decode(theme.get("prompt").getAsString());
-
             setBackground(backgroundColor);
             textPane.setBackground(backgroundColor);
             textPane.setCaretColor(defaultTextColor);
@@ -1000,16 +809,15 @@ public class TerminalPanel extends JPanel implements CurrentPathHolder {
     }
 
     public void dispose() {
-        EventManager eventManager = EventManager.getInstance();
         eventManager.unsubscribe(EventType.STATE_CHANGED, this::handleStateChanged);
         eventManager.unsubscribe(EventType.COMMAND_COMPLETED, this::handleCommandCompleted);
         eventManager.unsubscribe(EventType.COMMAND_FAILED, this::handleCommandFailed);
         eventManager.unsubscribe(EventType.OUTPUT_UPDATED, this::handleOutputUpdated);
         eventManager.unsubscribe(EventType.THEME_CHANGED, this::handleThemeChanged);
         
-        PluginManager.getInstance().shutdown();
+        pluginManager.shutdown();
         
-        eventManager.shutdown();
+        eventManager.clear();
     }
 
     public boolean isActive() {
@@ -1041,5 +849,167 @@ public class TerminalPanel extends JPanel implements CurrentPathHolder {
         } catch (Exception e) {
             e.printStackTrace();
         }
+    }
+
+    public synchronized void lock() {
+        isLocked = true;
+        textPane.setEditable(false);
+    }
+
+    public synchronized void unlock() {
+        isLocked = false;
+        textPane.setEditable(true);
+    }
+
+    public boolean isLocked() {
+        return isLocked;
+    }
+
+    public JTextPane getTextPane() {
+        return textPane;
+    }
+    
+    public void displayPromptPublic() {
+        displayPrompt();
+    }
+
+    public void setCurrentCommand(Command command) {
+        this.currentCommand = command;
+        System.out.println("Current command set to: " + (command instanceof AbstractAsyncCommand || command instanceof AsyncCommand));
+    }
+
+    public int getTerminalId() {
+        return terminalId;
+    }
+
+    private void setupKeyListeners() {
+        textPane.addKeyListener(new KeyAdapter() {
+            @Override
+            public void keyPressed(KeyEvent e) {
+                if (e.getKeyCode() == KeyEvent.VK_C && (e.getModifiersEx() & KeyEvent.CTRL_DOWN_MASK) != 0) {
+                    e.consume();
+                    handleCtrlC();
+                    return;
+                }
+
+                if (isLocked) {
+                    switch (e.getKeyCode()) {
+                        case KeyEvent.VK_PAGE_UP:
+                        case KeyEvent.VK_PAGE_DOWN:
+                        case KeyEvent.VK_UP:
+                        case KeyEvent.VK_DOWN:
+                        case KeyEvent.VK_LEFT:
+                        case KeyEvent.VK_RIGHT:
+                        case KeyEvent.VK_HOME:
+                        case KeyEvent.VK_END:
+                            break;
+                        default:
+                            e.consume();
+                            return;
+                    }
+                }
+
+                if (e.getKeyCode() == KeyEvent.VK_D && (e.getModifiersEx() & KeyEvent.CTRL_DOWN_MASK) != 0) {
+                    if (isInputMode) {
+                        e.consume();
+                        finishInput();
+                        return;
+                    }
+                }
+
+                if (!isInputMode) {
+                    int caretPosition = textPane.getCaretPosition();
+                    if (caretPosition < userInputStart) {
+                        e.consume();
+                        textPane.setCaretPosition(textPane.getDocument().getLength());
+                        return;
+                    }
+
+                    if (e.getKeyCode() == KeyEvent.VK_BACK_SPACE || 
+                        e.getKeyCode() == KeyEvent.VK_DELETE ||
+                        (e.getKeyCode() == KeyEvent.VK_A && e.isControlDown()) ||
+                        (e.getKeyCode() == KeyEvent.VK_X && e.isControlDown())) {
+                        if (textPane.getSelectionStart() < userInputStart) {
+                            e.consume();
+                            return;
+                        }
+                    }
+                }
+
+                if (!textPane.isEditable() && !isInputMode) {
+                    if (e.getKeyCode() != KeyEvent.VK_TAB) {
+                        textPane.setEditable(true);
+                        userInputStart = textPane.getDocument().getLength();
+                        textPane.setCaretPosition(userInputStart);
+                    }
+                }
+
+                if (e.getKeyCode() == KeyEvent.VK_ENTER) {
+                    e.consume();
+                    if (isInputMode) {
+                        try {
+                            StyledDocument doc = textPane.getStyledDocument();
+                            doc.insertString(textPane.getCaretPosition(), "\n", defaultStyle);
+                        } catch (BadLocationException ex) {
+                            ex.printStackTrace();
+                        }
+                    } else {
+                        if (!currentSuggestion.isEmpty()) {
+                            completeSuggestion();
+                        }
+                        String input = getCurrentInputLine();
+                        if (!input.trim().isEmpty()) {
+                            executeCommand();
+                        }
+                    }
+                    return;
+                }
+
+                if (e.getKeyCode() == KeyEvent.VK_TAB) {
+                    e.consume();
+                    if (!currentSuggestion.isEmpty()) {
+                        completeSuggestion();
+                    }
+                    return;
+                }
+
+                if (e.getKeyCode() == KeyEvent.VK_BACK_SPACE) {
+                    if (!isInputMode) {
+                        if (!currentSuggestion.isEmpty()) {
+                            e.consume();
+                            removeSuggestion();
+                            return;
+                        }
+                        if (textPane.getCaretPosition() <= userInputStart) {
+                            e.consume();
+                        }
+                    }
+                }
+
+                if (e.getKeyCode() == KeyEvent.VK_LEFT || e.getKeyCode() == KeyEvent.VK_RIGHT) {
+                    if (!isInputMode) {
+                        if (textPane.getCaretPosition() < userInputStart) {
+                            e.consume();
+                            textPane.setCaretPosition(userInputStart);
+                        }
+                    }
+                }
+
+                if (e.getKeyCode() == KeyEvent.VK_UP) {
+                    e.consume();
+                    showPreviousCommand();
+                } else if (e.getKeyCode() == KeyEvent.VK_DOWN) {
+                    e.consume();
+                    showNextCommand();
+                }
+            }
+
+            @Override
+            public void keyTyped(KeyEvent e) {
+                if (isLocked) {
+                    e.consume();
+                }
+            }
+        });
     }
 } 

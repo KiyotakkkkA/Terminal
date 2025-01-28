@@ -9,19 +9,19 @@ import java.util.zip.ZipInputStream;
 import javax.swing.text.Style;
 import javax.swing.text.StyledDocument;
 
-import com.terminal.sdk.CurrentPathHolder;
+import com.terminal.sdk.system.CurrentPathHolder;
 import com.terminal.utils.OutputFormatter;
 
 public class UnzipCommand extends AbstractCommand {
     private final CurrentPathHolder pathHolder;
 
     public UnzipCommand(StyledDocument doc, Style style, CurrentPathHolder pathHolder) {
-        super(doc, style);
+        super(doc, style, pathHolder, "unzip", "Распаковка ZIP архивов", "ARCHIVE_OPERATIONS");
         this.pathHolder = pathHolder;
     }
 
     @Override
-    public void execute(String... args) {
+    public void executeCommand(String... args) {
         try {
             if (args.length < 1) {
                 showUsage();

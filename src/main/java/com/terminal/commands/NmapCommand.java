@@ -23,7 +23,7 @@ public class NmapCommand extends AbstractCommand {
     }
 
     @Override
-    public void execute(String... args) {
+    public void executeCommand(String... args) {
         try {
             if (args.length < 1) {
                 showUsage();

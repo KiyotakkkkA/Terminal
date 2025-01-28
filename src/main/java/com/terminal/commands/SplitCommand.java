@@ -20,7 +20,7 @@ public class SplitCommand extends AbstractCommand {
     }
 
     @Override
-    public void execute(String[] args) {
+    public void executeCommand(String[] args) {
         if (args.length < 1) {
             printHelp();
             return;
@@ -30,16 +30,16 @@ public class SplitCommand extends AbstractCommand {
             case "v":
             case "vertical":
                 frame.splitVertically();
-                writeToOutput("Создано вертикальное разделение\n");
+                appendLine("Создано вертикальное разделение\n");
                 return;
             case "h":
             case "horizontal":
                 frame.splitHorizontally();
-                writeToOutput("Создано горизонтальное разделение\n");
+                appendLine("Создано горизонтальное разделение\n");
                 return;
             case "close":
                 frame.closePanel(frame.getActivePanel());
-                writeToOutput("Панель закрыта\n");
+                appendLine("Панель закрыта\n");
                 return;
             default:
                 printHelp();
@@ -51,7 +51,7 @@ public class SplitCommand extends AbstractCommand {
                      "  split v|vertical   - разделить экран вертикально\n" +
                      "  split h|horizontal - разделить экран горизонтально\n" +
                      "  split close       - закрыть текущую панель\n";
-        writeToOutput(help);
+        appendLine(help);
     }
 
     @Override

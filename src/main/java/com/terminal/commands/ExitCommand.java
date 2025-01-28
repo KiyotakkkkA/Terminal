@@ -9,31 +9,26 @@ public class ExitCommand extends AbstractCommand {
     private final Runnable exitCallback;
 
     public ExitCommand(StyledDocument doc, Style style, Runnable exitCallback) {
-        super(doc, style);
+        super(doc, style, null, "exit", "Выход из терминала", "SYSTEM");
         this.exitCallback = exitCallback;
     }
 
     @Override
-    public void execute(String... args) {
+    public void executeCommand(String... args) {
         try {
-            OutputFormatter.printBoxedHeader(doc, style, "Завершение работы");
+            OutputFormatter.printBoxedHeader(doc, style, "Выход из терминала");
             OutputFormatter.printBoxedLine(doc, style, "До свидания!");
             OutputFormatter.printBoxedFooter(doc, style);
-            
             if (exitCallback != null) {
                 exitCallback.run();
             }
         } catch (Exception e) {
-            try {
-                OutputFormatter.printError(doc, style, e.getMessage());
-            } catch (Exception ex) {
-                System.err.println("Ошибка при завершении работы: " + e.getMessage());
-            }
+            e.printStackTrace();
         }
     }
 
     @Override
     public String getDescription() {
-        return "завершить работу терминала";
+        return "выход из терминала";
     }
 } 

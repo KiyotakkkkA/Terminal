@@ -13,16 +13,19 @@ import javax.net.ssl.SSLSocketFactory;
 import javax.swing.text.Style;
 import javax.swing.text.StyledDocument;
 
+import com.terminal.sdk.system.CurrentPathHolder;
 import com.terminal.utils.OutputFormatter;
 
 public class WebCommand extends AbstractCommand {
+    private final CurrentPathHolder pathHolder;
 
-    public WebCommand(StyledDocument doc, Style style) {
-        super(doc, style);
+    public WebCommand(StyledDocument doc, Style style, CurrentPathHolder pathHolder) {
+        super(doc, style, pathHolder, "web", "HTTP запросы", "NETWORK");
+        this.pathHolder = pathHolder;
     }
 
     @Override
-    public void execute(String... args) {
+    public void executeCommand(String... args) {
         try {
             if (args.length < 2) {
                 showUsage();

@@ -11,12 +11,13 @@ import java.util.Set;
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-import com.terminal.sdk.EventManager;
-import com.terminal.sdk.EventType;
-import com.terminal.sdk.Logger;
-import com.terminal.sdk.TerminalEvent;
+import com.terminal.sdk.events.EventManager;
+import com.terminal.sdk.events.EventType;
+import com.terminal.sdk.events.TerminalEvent;
+import com.terminal.sdk.services.IThemeManager;
+import com.terminal.sdk.system.Logger;
 
-public class ThemeManager {
+public class ThemeManager implements IThemeManager {
     private static ThemeManager instance;
     private final String themesPath = "content/themes.json";
     private final String userConfigPath = "content/user.json";
@@ -48,6 +49,7 @@ public class ThemeManager {
         return instance;
     }
 
+    @Override
     public void loadThemes() {
         Logger.info(getClass().getSimpleName(), "Loaded theme: " + getCurrentThemeName());
         Logger.info(getClass().getSimpleName(), "Available themes: " + String.join(", ", getAvailableThemes()));
@@ -264,6 +266,7 @@ public class ThemeManager {
         }
     }
 
+    @Override
     public void registerPluginTheme(String themeName, String themeContent) {
         try {
             JsonObject allThemes = JsonParser.parseReader(new FileReader(themesPath)).getAsJsonObject();
@@ -280,14 +283,17 @@ public class ThemeManager {
         }
     }
 
+    @Override
     public Set<String> getAvailableThemes() {
         return new HashSet<>(themes.keySet());
     }
 
+    @Override
     public JsonObject getCurrentTheme() {
         return currentTheme;
     }
 
+    @Override
     public void setTheme(String themeName) {
         if (!themes.containsKey(themeName)) {
             throw new IllegalArgumentException("Тема не найдена: " + themeName);
@@ -309,6 +315,7 @@ public class ThemeManager {
         }
     }
 
+    @Override
     public String getThemeColor(String colorKey) {
         try {
             if (currentTheme.has("colors")) {

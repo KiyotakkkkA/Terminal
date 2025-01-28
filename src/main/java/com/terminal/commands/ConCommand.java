@@ -6,6 +6,7 @@ import java.net.NetworkInterface;
 import java.util.ArrayList;
 import java.util.Enumeration;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -14,39 +15,67 @@ import java.util.concurrent.TimeUnit;
 import javax.swing.text.Style;
 import javax.swing.text.StyledDocument;
 
-import com.terminal.sdk.AsyncCommand;
+import com.terminal.sdk.AbstractAsyncCommand;
+import com.terminal.sdk.system.CurrentPathHolder;
 import com.terminal.utils.OutputFormatter;
 
-public class ConCommand extends AsyncCommand {
+public class ConCommand extends AbstractAsyncCommand {
     private static final int SCAN_TIMEOUT = 200;
     private static final int THREAD_POOL_SIZE = 50;
     private static final int EXECUTOR_TIMEOUT = 5;
     private final Style promptStyle;
+    private volatile boolean isRunning = true;
 
-    public ConCommand(StyledDocument doc, Style style, Style promptStyle) {
-        super(doc, style);
+    public ConCommand(StyledDocument doc, Style style, Style promptStyle, CurrentPathHolder pathHolder) {
+        super(doc, style, pathHolder);
         this.promptStyle = promptStyle;
     }
 
     @Override
-    public void execute(String... args) throws Exception {
-        List<NetworkInterface> activeInterfaces = new ArrayList<>();
-        startOutputBlock();
+    public CompletableFuture<Void> executeAsync(String[] args) {
+        isRunning = true;
+        output.startAnimation(FRAMES, FRAME_DELAY);
         
+        return CompletableFuture.runAsync(() -> {
+            try {
+                scanNetworkAsync();
+            } catch (Exception e) {
+                if (!isInterrupted()) {
+                    output.completeWithError(e.getMessage());
+                }
+            } finally {
+                isRunning = false;
+                if (!isInterrupted()) {
+                    output.complete();
+                }
+            }
+        });
+    }
+
+    @Override
+    protected void executeCommand(String... args) throws Exception {
+        CompletableFuture<Void> future = executeAsync(args);
+        Thread.sleep(100);
+    }
+
+    private void scanNetworkAsync() throws Exception {
+        if (!isRunning) return;
+        
+        ExecutorService networkExecutor = Executors.newFixedThreadPool(THREAD_POOL_SIZE);
         try {
+            List<NetworkInterface> activeInterfaces = new ArrayList<>();
             Enumeration<NetworkInterface> interfaces = NetworkInterface.getNetworkInterfaces();
-            int interfaceNumber = 1;
             
-            OutputFormatter.printBeautifulSection(doc, promptStyle, "ИНФОРМАЦИЯ О СЕТЕВЫХ ПОДКЛЮЧЕНИЯХ");
-            
-            while (interfaces.hasMoreElements()) {
+            while (interfaces.hasMoreElements() && isRunning) {
                 NetworkInterface ni = interfaces.nextElement();
                 if (ni.isUp() && !ni.isLoopback()) {
                     activeInterfaces.add(ni);
-                    collectAndDisplayInterfaceInfo(ni, interfaceNumber++);
+                    collectAndDisplayInterfaceInfo(ni, activeInterfaces.size());
                 }
             }
 
+            if (!isRunning) return;
+            
             InetAddress localhost = InetAddress.getLocalHost();
             String[][] localhostData = {
                 {"Имя хоста", localhost.getHostName()},
@@ -57,8 +86,14 @@ public class ConCommand extends AsyncCommand {
             OutputFormatter.printBeautifulSection(doc, promptStyle, "ЛОКАЛЬНЫЙ ХОСТ");
             OutputFormatter.printBeautifulTable(doc, style, headers, localhostData);
 
+            if (!isRunning) return;
+
             for (NetworkInterface ni : activeInterfaces) {
+                if (!isRunning) break;
+                
                 for (InterfaceAddress addr : ni.getInterfaceAddresses()) {
+                    if (!isRunning) break;
+                    
                     if (addr.getAddress().isSiteLocalAddress()) {
                         String subnet = addr.getAddress().getHostAddress();
                         subnet = subnet.substring(0, subnet.lastIndexOf(".") + 1);
@@ -68,22 +103,24 @@ public class ConCommand extends AsyncCommand {
                             {"Маска подсети", calculateNetmask(addr.getNetworkPrefixLength())},
                             {"Broadcast", addr.getBroadcast() != null ? addr.getBroadcast().getHostAddress() : "Недоступен"}
                         };
-                        OutputFormatter.printBeautifulSection(doc, promptStyle, "ИНФОРМАЦИЯ О СЕТИ");
+                        OutputFormatter.printBeautifulSection(doc, promptStyle, "ИНФОРМАЦИЯ О СЕТИ - " + subnet + "0/" + addr.getNetworkPrefixLength());
                         OutputFormatter.printBeautifulTable(doc, style, headers, networkData);
 
+                        if (!isRunning) break;
+                        
                         OutputFormatter.printBeautifulSection(doc, promptStyle, "СКАНИРОВАНИЕ СЕТИ");
                         scanAndDisplayDevices(subnet);
                     }
                 }
             }
         } finally {
-            endOutputBlock();
-            OutputFormatter.printBeautifulSectionEnd(doc, style);
-            appendWithStyle("\n", style);
+            networkExecutor.shutdownNow();
         }
     }
 
     private void collectAndDisplayInterfaceInfo(NetworkInterface ni, int number) throws Exception {
+        if (!isRunning) return;
+        
         String[] headers = {"Параметр", "Значение"};
         OutputFormatter.printBeautifulSection(doc, promptStyle, "СЕТЕВОЙ ИНТЕРФЕЙС №" + number);
         
@@ -122,37 +159,48 @@ public class ConCommand extends AsyncCommand {
     }
 
     private void scanAndDisplayDevices(String subnet) throws Exception {
-        ExecutorService executor = Executors.newFixedThreadPool(THREAD_POOL_SIZE);
+        if (!isRunning) return;
+        
         List<Future<String[]>> futures = new ArrayList<>();
         List<String[]> foundDevices = new ArrayList<>();
 
         try {
             InetAddress broadcast = InetAddress.getByName(subnet + "255");
-            futures.add(executor.submit(() -> checkHost(broadcast)));
+            futures.add(CompletableFuture.supplyAsync(() -> checkHost(broadcast)));
 
-            for (int i = 1; i <= 5; i++) {
+            for (int i = 1; i <= 5 && isRunning; i++) {
                 final String host = subnet + i;
-                futures.add(executor.submit(() -> checkHost(InetAddress.getByName(host))));
+                futures.add(CompletableFuture.supplyAsync(() -> {
+                    try {
+                        return checkHost(InetAddress.getByName(host));
+                    } catch (Exception e) {
+                        return null;
+                    }
+                }));
             }
 
-            for (int i = 6; i < 255; i++) {
+            for (int i = 6; i < 255 && isRunning; i++) {
                 final String host = subnet + i;
-                futures.add(executor.submit(() -> checkHost(InetAddress.getByName(host))));
-            }
-
-            executor.shutdown();
-            if (!executor.awaitTermination(EXECUTOR_TIMEOUT, TimeUnit.SECONDS)) {
-                executor.shutdownNow();
+                futures.add(CompletableFuture.supplyAsync(() -> {
+                    try {
+                        return checkHost(InetAddress.getByName(host));
+                    } catch (Exception e) {
+                        return null;
+                    }
+                }));
             }
 
             for (Future<String[]> future : futures) {
+                if (!isRunning) break;
                 try {
-                    String[] result = future.get();
+                    String[] result = future.get(SCAN_TIMEOUT * 2, TimeUnit.MILLISECONDS);
                     if (result != null) {
                         foundDevices.add(result);
                     }
                 } catch (Exception ignored) {}
             }
+
+            if (!isRunning) return;
 
             if (!foundDevices.isEmpty()) {
                 String[][] tableData = new String[foundDevices.size()][7];
@@ -165,8 +213,6 @@ public class ConCommand extends AsyncCommand {
                 OutputFormatter.printBeautifulMessage(doc, style, "Устройства не найдены");
             }
         } finally {
-            executor.shutdownNow();
-            appendWithStyle("\n", style);
         }
     }
 
@@ -214,7 +260,13 @@ public class ConCommand extends AsyncCommand {
     }
 
     @Override
-    public List<String> getSuggestions(String[] args) {
-        return new ArrayList<>();
+    public void interrupt() {
+        isRunning = false;
+        super.interrupt();
+    }
+
+    @Override
+    public String[] getSuggestions(String[] args) {
+        return new String[0];
     }
 } 

@@ -9,19 +9,19 @@ import java.util.zip.ZipOutputStream;
 import javax.swing.text.Style;
 import javax.swing.text.StyledDocument;
 
-import com.terminal.sdk.CurrentPathHolder;
+import com.terminal.sdk.system.CurrentPathHolder;
 import com.terminal.utils.OutputFormatter;
 
 public class ZipCommand extends AbstractCommand {
     private final CurrentPathHolder pathHolder;
 
     public ZipCommand(StyledDocument doc, Style style, CurrentPathHolder pathHolder) {
-        super(doc, style);
+        super(doc, style, pathHolder, "zip", "Создание ZIP архивов", "ARCHIVE_OPERATIONS");
         this.pathHolder = pathHolder;
     }
 
     @Override
-    public void execute(String... args) {
+    public void executeCommand(String... args) {
         try {
             if (args.length < 2) {
                 OutputFormatter.printBoxedHeader(doc, style, "Использование: zip <архив.zip> <файлы...>");

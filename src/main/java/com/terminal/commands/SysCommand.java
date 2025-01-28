@@ -16,81 +16,95 @@ import com.terminal.utils.OutputFormatter;
 
 public class SysCommand extends SystemCommandBase {
     private final DecimalFormat df = new DecimalFormat("#,##0.00");
-
-    public SysCommand(StyledDocument doc, Style style) {
+    private final Style promptStyle;
+    public SysCommand(StyledDocument doc, Style style, Style promptStyle) {
         super(doc, style);
+        this.promptStyle = promptStyle;
     }
 
     @Override
-    public void execute(String... args) {
+    @SuppressWarnings("empty-statement")
+    public void executeCommand(String... args) {
         try {
             OperatingSystemMXBean os = ManagementFactory.getOperatingSystemMXBean();
             RuntimeMXBean runtime = ManagementFactory.getRuntimeMXBean();
             MemoryMXBean memory = ManagementFactory.getMemoryMXBean();
             Properties props = System.getProperties();
-
-            OutputFormatter.printBoxedHeader(doc, style, "Системная информация");
             
             // OS Info
-            OutputFormatter.printBoxedLine(doc, style, "Операционная система:");
-            OutputFormatter.printBoxedLine(doc, style, "  Имя: " + os.getName());
-            OutputFormatter.printBoxedLine(doc, style, "  Версия: " + os.getVersion());
-            OutputFormatter.printBoxedLine(doc, style, "  Архитектура: " + os.getArch());
-            OutputFormatter.printBoxedLine(doc, style, "  Процессоры: " + os.getAvailableProcessors());
-            OutputFormatter.printBoxedLine(doc, style, "  Загрузка CPU: " + df.format(os.getSystemLoadAverage()) + "%");
+            OutputFormatter.printBeautifulSection(doc, promptStyle, "Операционная система");
+            String[] headers = {"Параметр", "Значение"};
+
+            String[][] data = new String[][] {
+                {"Имя", os.getName()},
+                {"Версия", os.getVersion()},
+                {"Архитектура", os.getArch()},
+                {"Процессоры", String.valueOf(os.getAvailableProcessors())},
+                {"Загрузка CPU", df.format(os.getSystemLoadAverage()) + "%"}
+            };
+            OutputFormatter.printBeautifulTable(doc, style, headers, data);
             
             // Memory Info
-            OutputFormatter.printBoxedLine(doc, style, "");
-            OutputFormatter.printBoxedLine(doc, style, "Память:");
+            OutputFormatter.printBeautifulSection(doc, promptStyle, "Оперативная память");
             Runtime rt = Runtime.getRuntime();
-            OutputFormatter.printBoxedLine(doc, style, "  Всего RAM: " + formatSize(rt.totalMemory()));
-            OutputFormatter.printBoxedLine(doc, style, "  Свободно RAM: " + formatSize(rt.freeMemory()));
-            OutputFormatter.printBoxedLine(doc, style, "  Макс. RAM: " + formatSize(rt.maxMemory()));
-            OutputFormatter.printBoxedLine(doc, style, "  Heap использовано: " + formatSize(memory.getHeapMemoryUsage().getUsed()));
-            OutputFormatter.printBoxedLine(doc, style, "  Non-Heap использовано: " + formatSize(memory.getNonHeapMemoryUsage().getUsed()));
+            data = new String[][] {
+                {"Всего RAM", formatSize(rt.totalMemory())},
+                {"Свободно RAM", formatSize(rt.freeMemory())},
+                {"Макс. RAM", formatSize(rt.maxMemory())},
+                {"Heap использовано", formatSize(memory.getHeapMemoryUsage().getUsed())},
+                {"Non-Heap использовано", formatSize(memory.getNonHeapMemoryUsage().getUsed())},
+                {"Heap свободно", formatSize(memory.getHeapMemoryUsage().getCommitted())},
+                {"Non-Heap свободно", formatSize(memory.getNonHeapMemoryUsage().getCommitted())}
+            };
+            OutputFormatter.printBeautifulTable(doc, style, headers, data);
             
             // Disk Info
-            OutputFormatter.printBoxedLine(doc, style, "");
-            OutputFormatter.printBoxedLine(doc, style, "Диски:");
-            for (File root : File.listRoots()) {
-                String diskInfo = String.format("  %s Всего: %s, Свободно: %s, Доступно: %s",
-                    root.getPath(),
+            OutputFormatter.printBeautifulSection(doc, promptStyle, "Диски");
+            data = new String[File.listRoots().length][2];
+            for (int i = 0; i < File.listRoots().length; i++) {
+                File root = File.listRoots()[i];
+                data[i][0] = root.getPath();
+                data[i][1] = String.format("Всего: %s, Свободно: %s, Доступно: %s",
                     formatSize(root.getTotalSpace()),
                     formatSize(root.getFreeSpace()),
                     formatSize(root.getUsableSpace()));
-                OutputFormatter.printBoxedLine(doc, style, diskInfo);
             }
+            OutputFormatter.printBeautifulTable(doc, style, headers, data);
             
             // Java Info
-            OutputFormatter.printBoxedLine(doc, style, "");
-            OutputFormatter.printBoxedLine(doc, style, "Java:");
-            OutputFormatter.printBoxedLine(doc, style, "  Версия: " + props.getProperty("java.version"));
-            OutputFormatter.printBoxedLine(doc, style, "  Vendor: " + props.getProperty("java.vendor"));
-            OutputFormatter.printBoxedLine(doc, style, "  Home: " + props.getProperty("java.home"));
-            OutputFormatter.printBoxedLine(doc, style, "  Время работы: " + formatDuration(Duration.ofMillis(runtime.getUptime())));
-            OutputFormatter.printBoxedLine(doc, style, "  Параметры запуска: " + runtime.getInputArguments());
-
+            OutputFormatter.printBeautifulSection(doc, promptStyle, "Java");
+            data = new String[][] {
+                {"Версия", props.getProperty("java.version")},
+                {"Vendor", props.getProperty("java.vendor")},
+                {"Home", props.getProperty("java.home")},
+                {"Время работы", formatDuration(Duration.ofMillis(runtime.getUptime()))},
+                {"Параметры запуска", String.join(" ", runtime.getInputArguments()) != null ? String.join(" ", runtime.getInputArguments()) : "Н/Д"}
+            };
+            OutputFormatter.printBeautifulTable(doc, style, headers, data);
+            
             // Network Info
-            OutputFormatter.printBoxedLine(doc, style, "");
-            OutputFormatter.printBoxedLine(doc, style, "Сеть:");
-            OutputFormatter.printBoxedLine(doc, style, "  Имя хоста: " + (System.getenv("COMPUTERNAME") != null ? 
-                System.getenv("COMPUTERNAME") : "Н/Д"));
-            OutputFormatter.printBoxedLine(doc, style, "  Домен: " + (System.getenv("USERDOMAIN") != null ? 
-                System.getenv("USERDOMAIN") : "Н/Д"));
-            OutputFormatter.printBoxedLine(doc, style, "  Сетевой профиль: " + (System.getenv("USERDNSDOMAIN") != null ? 
-                System.getenv("USERDNSDOMAIN") : "Н/Д"));
-            OutputFormatter.printBoxedLine(doc, style, "  Временная зона: " + props.getProperty("user.timezone"));
+            OutputFormatter.printBeautifulSection(doc, promptStyle, "Сеть");
+            data = new String[][] {
+                {"Имя хоста", (System.getenv("COMPUTERNAME") != null ? 
+                    System.getenv("COMPUTERNAME") : "Н/Д")},
+                {"Домен", (System.getenv("USERDOMAIN") != null ? 
+                    System.getenv("USERDOMAIN") : "Н/Д")},
+                {"Сетевой профиль", (System.getenv("USERDNSDOMAIN") != null ? 
+                    System.getenv("USERDNSDOMAIN") : "Н/Д")},
+                {"Временная зона", props.getProperty("user.timezone")}
+            };
+            OutputFormatter.printBeautifulTable(doc, style, headers, data);
 
             // User Info
-            OutputFormatter.printBoxedLine(doc, style, "");
-            OutputFormatter.printBoxedLine(doc, style, "Пользователь:");
-            OutputFormatter.printBoxedLine(doc, style, "  Имя: " + props.getProperty("user.name"));
-            OutputFormatter.printBoxedLine(doc, style, "  Домашняя директория: " + props.getProperty("user.home"));
-            OutputFormatter.printBoxedLine(doc, style, "  Рабочая директория: " + props.getProperty("user.dir"));
-            OutputFormatter.printBoxedLine(doc, style, "  Временная директория: " + props.getProperty("java.io.tmpdir"));
-            
-            OutputFormatter.printBoxedFooter(doc, style);
-            
+            OutputFormatter.printBeautifulSection(doc, promptStyle, "Пользователь");
+            data = new String[][] {
+                {"Имя", props.getProperty("user.name")},
+                {"Домашняя директория", props.getProperty("user.home")},
+                {"Рабочая директория", props.getProperty("user.dir")},
+                {"Имя компьютера", System.getenv("COMPUTERNAME")},
+                {"Временная директория", props.getProperty("java.io.tmpdir")}
+            };
+            OutputFormatter.printBeautifulTable(doc, style, headers, data);            
         } catch (Exception e) {
             try {
                 OutputFormatter.printError(doc, style, e.getMessage());

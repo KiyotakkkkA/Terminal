@@ -18,6 +18,7 @@ import javax.swing.text.Style;
 import javax.swing.text.StyleConstants;
 import javax.swing.text.StyledDocument;
 
+import com.terminal.sdk.system.CurrentPathHolder;
 import com.terminal.utils.OutputFormatter;
 
 public class FuzzCommand extends AbstractCommand {
@@ -42,8 +43,11 @@ public class FuzzCommand extends AbstractCommand {
         {"../../../../../../../../etc/passwd", "Deep Path Traversal:\n│  1. Используйте в параметрах загрузки файлов\n│  2. Попробуйте разные уровни вложенности ../"}
     };
 
-    public FuzzCommand(StyledDocument doc, Style style) {
-        super(doc, style);
+    private final CurrentPathHolder pathHolder;
+
+    public FuzzCommand(StyledDocument doc, Style style, CurrentPathHolder pathHolder) {
+        super(doc, style, pathHolder, "fuzz", "Фаззинг файлов и URL", "SEARCH_AND_PROCESS");
+        this.pathHolder = pathHolder;
     }
 
     @Override
@@ -54,7 +58,7 @@ public class FuzzCommand extends AbstractCommand {
     }
 
     @Override
-    public void execute(String... args) {
+    public void executeCommand(String... args) {
         try {
             if (args.length < 2) {
                 OutputFormatter.printBoxedHeader(doc, style, "Использование: fuzz <тип> <цель> [опции]");

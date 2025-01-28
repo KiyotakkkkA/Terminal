@@ -17,7 +17,7 @@ import javax.swing.text.StyledDocument;
 
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
 
-import com.terminal.sdk.CurrentPathHolder;
+import com.terminal.sdk.system.CurrentPathHolder;
 import com.terminal.utils.OutputFormatter;
 
 public class CryptoCommand extends AbstractCommand {
@@ -31,7 +31,7 @@ public class CryptoCommand extends AbstractCommand {
     }
 
     public CryptoCommand(StyledDocument doc, Style style, CurrentPathHolder pathHolder) {
-        super(doc, style);
+        super(doc, style, pathHolder, "crypto", "Шифрование и дешифрование файлов", "FILE_OPERATIONS");
         this.pathHolder = pathHolder;
 
         try {
@@ -55,7 +55,7 @@ public class CryptoCommand extends AbstractCommand {
     }
 
     @Override
-    public void execute(String... args) {
+    public void executeCommand(String... args) {
         try {
             if (args.length < 1) {
                 OutputFormatter.printBoxedHeader(doc, style, "Использование: crypto <операция> [параметры]");

@@ -8,14 +8,14 @@ import java.security.NoSuchAlgorithmException;
 import javax.swing.text.Style;
 import javax.swing.text.StyledDocument;
 
-import com.terminal.sdk.CurrentPathHolder;
+import com.terminal.sdk.system.CurrentPathHolder;
 import com.terminal.utils.OutputFormatter;
 
 public class HashCommand extends AbstractCommand {
     private final CurrentPathHolder pathHolder;
 
     public HashCommand(StyledDocument doc, Style style, CurrentPathHolder pathHolder) {
-        super(doc, style);
+        super(doc, style, pathHolder, "hash", "Вычисление хеш-сумм файлов", "SEARCH_AND_PROCESS");
         this.pathHolder = pathHolder;
     }
 
@@ -28,7 +28,7 @@ public class HashCommand extends AbstractCommand {
     }
 
     @Override
-    public void execute(String... args) {
+    public void executeCommand(String... args) {
         try {
             if (args.length < 2) {
                 OutputFormatter.printBoxedHeader(doc, style, "Использование: hash <алгоритм> <файл>");

@@ -3,19 +3,19 @@ package com.terminal.commands;
 import javax.swing.text.Style;
 import javax.swing.text.StyledDocument;
 
-import com.terminal.sdk.CurrentPathHolder;
+import com.terminal.sdk.system.CurrentPathHolder;
 import com.terminal.utils.OutputFormatter;
 
 public class PwdCommand extends AbstractCommand {
     private final CurrentPathHolder pathHolder;
 
     public PwdCommand(StyledDocument doc, Style style, CurrentPathHolder pathHolder) {
-        super(doc, style);
+        super(doc, style, pathHolder, "pwd", "Показать текущую директорию", "FILE_OPERATIONS");
         this.pathHolder = pathHolder;
     }
 
     @Override
-    public void execute(String... args) {
+    public void executeCommand(String... args) {
         try {
             OutputFormatter.printBoxedHeader(doc, style, "Текущая папка");
             OutputFormatter.printBoxedLine(doc, style, pathHolder.getCurrentPath());

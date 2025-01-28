@@ -5,19 +5,19 @@ import java.io.File;
 import javax.swing.text.Style;
 import javax.swing.text.StyledDocument;
 
-import com.terminal.sdk.CurrentPathHolder;
+import com.terminal.sdk.system.CurrentPathHolder;
 import com.terminal.utils.OutputFormatter;
 
 public class MkdirCommand extends AbstractCommand {
     private final CurrentPathHolder pathHolder;
 
     public MkdirCommand(StyledDocument doc, Style style, CurrentPathHolder pathHolder) {
-        super(doc, style);
+        super(doc, style, pathHolder, "mkdir", "Создание директории", "FILE_OPERATIONS");
         this.pathHolder = pathHolder;
     }
 
     @Override
-    public void execute(String... args) {
+    public void executeCommand(String... args) {
         try {
             if (args.length < 1) {
                 showUsage();

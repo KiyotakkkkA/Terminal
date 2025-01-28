@@ -10,14 +10,17 @@ import java.util.Map;
 import javax.swing.text.Style;
 import javax.swing.text.StyledDocument;
 
-import com.terminal.sdk.Command;
-import com.terminal.sdk.CurrentPathHolder;
+import com.terminal.sdk.core.Command;
+import com.terminal.sdk.core.CommandInfo;
+import com.terminal.sdk.formatting.DefaultBeautifulFormatter;
+import com.terminal.sdk.system.CurrentPathHolder;
+import com.terminal.utils.OutputFormatter;
 
 /**
  * Базовый класс для команд терминала.
  * Предоставляет общую функциональность для всех команд.
  */
-public abstract class AbstractCommand implements Command {
+public abstract class AbstractCommand extends Command {
     protected final StyledDocument doc;
     protected final Style style;
     private ByteArrayOutputStream outputStream;
@@ -27,13 +30,18 @@ public abstract class AbstractCommand implements Command {
     protected final Map<String, SubCommand> subCommands;
     protected final CurrentPathHolder pathHolder;
     protected boolean isLongRunning = false;
+    private final String name;
+    private final String description;
+    private final String category;
+    protected static final DefaultBeautifulFormatter formatter = new DefaultBeautifulFormatter();
+    private boolean isRedirected = false;
 
     protected static class SubCommand {
         private final String name;
         private final String description;
         private final List<String> subCommands;
 
-        public SubCommand(String name, String description) {
+        public SubCommand(String name, String description) {    
             this(name, description, new ArrayList<>());
         }
 
@@ -57,15 +65,44 @@ public abstract class AbstractCommand implements Command {
     }
 
     public AbstractCommand(StyledDocument doc, Style style) {
-        this(doc, style, null);
+        this(doc, style, null, "", "", "OTHER");
     }
 
     public AbstractCommand(StyledDocument doc, Style style, CurrentPathHolder pathHolder) {
+        this(doc, style, pathHolder, "", "", "OTHER");
+    }
+
+    protected AbstractCommand(StyledDocument doc, Style style, CurrentPathHolder pathHolder, 
+                            String name, String description, String category) {
+        super(doc, style, pathHolder);
         this.doc = doc;
         this.style = style;
         this.pathHolder = pathHolder;
         this.subCommands = new HashMap<>();
+        this.name = name;
+        this.description = description;
+        this.category = category;
         initializeSubCommands();
+    }
+
+    @Override
+    public String getName() {
+        return name;
+    }
+
+    @Override
+    public CommandInfo getInfo() {
+        return new CommandInfo(name, description, category, this);
+    }
+
+    @Override
+    public String getCategory() {
+        return category;
+    }
+
+    @Override
+    public String getDescription() {
+        return description;
     }
 
     protected void initializeSubCommands() {
@@ -80,91 +117,93 @@ public abstract class AbstractCommand implements Command {
     }
 
     @Override
-    public List<String> getSuggestions(String[] args) {
-        if (args.length == 0) {
-            return new ArrayList<>(subCommands.keySet());
-        }
-
-        String currentArg = args[args.length - 1].toLowerCase();
-        String previousArg = args.length > 1 ? args[args.length - 2].toLowerCase() : "";
-
-        if (currentArg.isEmpty()) {
-            SubCommand prevSubCommand = subCommands.get(previousArg);
-            if (prevSubCommand != null) {
-                return prevSubCommand.getSubCommands();
-            }
-            return new ArrayList<>(subCommands.keySet());
-        }
-
-        if (!previousArg.isEmpty()) {
-            SubCommand prevSubCommand = subCommands.get(previousArg);
-            if (prevSubCommand != null) {
-                return prevSubCommand.getSubCommands().stream()
-                    .filter(cmd -> cmd.toLowerCase().startsWith(currentArg))
-                    .collect(java.util.stream.Collectors.toList());
-            }
-        }
-
-        return subCommands.keySet().stream()
-            .filter(cmd -> cmd.toLowerCase().startsWith(currentArg))
-            .collect(java.util.stream.Collectors.toList());
+    public String[] getSuggestions(String[] args) {
+        List<String> suggestions = new ArrayList<>(subCommands.keySet());
+        return suggestions.toArray(new String[0]);
     }
 
     @Override
-    public boolean isLongRunning() {
-        return shouldRunAsync();
+    public void execute(String[] args) {
+        try {
+            executeCommand(args);
+        } catch (Exception e) {
+            printError(e.getMessage());
+        }
     }
 
-    protected StyledDocument getDoc() {
-        return doc;
-    }
-
-    protected Style getStyle() {
-        return style;
-    }
+    protected abstract void executeCommand(String... args) throws Exception;
 
     @Override
     public String executeAndGetOutput(String... args) {
+        OutputFormatter.startOutputCapture();
         try {
-            originalOut = System.out;
-            originalDoc = doc;
-            originalStyle = style;
-            
-            outputStream = new ByteArrayOutputStream();
-            PrintStream printStream = new PrintStream(outputStream);
-            System.setOut(printStream);
-            
-            execute(args);
-            
-            System.setOut(originalOut);
-            
-            return outputStream.toString("UTF-8");
+            executeCommand(args);
+            return OutputFormatter.getCapturedOutput();
         } catch (Exception e) {
-            if (originalOut != null) {
-                System.setOut(originalOut);
-            }
             return "Ошибка: " + e.getMessage() + "\n";
+        } finally {
+            OutputFormatter.stopOutputCapture();
         }
     }
 
-    protected void writeToOutput(String text) {
+    protected boolean shouldRunAsync() {
+        return isLongRunning;
+    }
+
+    protected void printError(String message) {
         try {
-            if (outputStream != null) {
-                outputStream.write(text.getBytes("UTF-8"));
-            } else {
-                doc.insertString(doc.getLength(), text, style);
-            }
+            formatter.printMessage(doc, style, "Ошибка: " + message);
         } catch (Exception e) {
-            e.printStackTrace();
+            System.err.println("Ошибка при выводе сообщения: " + e.getMessage());
         }
     }
-
-    protected Map<String, SubCommand> getSubCommands() {
-        return subCommands;
+    
+    protected void printMessage(String message) {
+        try {
+            formatter.printMessage(doc, style, message);
+        } catch (Exception e) {
+            System.err.println("Ошибка при выводе сообщения: " + e.getMessage());
+        }
     }
-
-    public List<String> getSubCommandNames() {
-        return new ArrayList<>(subCommands.keySet());
+    
+    protected void printSection(String title) {
+        try {
+            formatter.printSection(doc, style, title);
+        } catch (Exception e) {
+            System.err.println("Ошибка при выводе секции: " + e.getMessage());
+        }
+    }
+    
+    protected void printTable(String[] headers, String[][] data) {
+        try {
+            formatter.printTable(doc, style, headers, data);
+        } catch (Exception e) {
+            System.err.println("Ошибка при выводе таблицы: " + e.getMessage());
+        }
+    }
+    
+    protected void printCompactTable(String[] headers, String[][] data) {
+        try {
+            formatter.printCompactTable(doc, style, headers, data);
+        } catch (Exception e) {
+            System.err.println("Ошибка при выводе таблицы: " + e.getMessage());
+        }
+    }
+    
+    protected void printMinimalTable(String[] headers, String[][] data) {
+        try {
+            formatter.printMinimalTable(doc, style, headers, data);
+        } catch (Exception e) {
+            System.err.println("Ошибка при выводе таблицы: " + e.getMessage());
+        }
+    }
+    
+    protected void printSectionEnd() {
+        try {
+            formatter.printSectionEnd(doc, style);
+        } catch (Exception e) {
+            System.err.println("Ошибка при завершении секции: " + e.getMessage());
+        }
     }
 
     /**
@@ -181,8 +220,12 @@ public abstract class AbstractCommand implements Command {
     /**
      * Добавляет текст с новой строки.
      */
-    protected void appendLine(String str) {
-        appendString(str + "\n");
+    protected void appendLine(String text) {
+        try {
+            doc.insertString(doc.getLength(), text + "\n", style);
+        } catch (Exception e) {
+            System.err.println("Ошибка при выводе строки: " + e.getMessage());
+        }
     }
 
     /**
@@ -199,17 +242,5 @@ public abstract class AbstractCommand implements Command {
         if (pathHolder != null) {
             pathHolder.setCurrentPath(path);
         }
-    }
-
-    /**
-     * Проверяет, является ли команда длительной операцией.
-     * По умолчанию возвращает true для команд, которые:
-     * - Работают с сетью
-     * - Выполняют сложные вычисления
-     * - Обрабатывают большие файлы
-     * - Взаимодействуют с внешними процессами
-     */
-    protected boolean shouldRunAsync() {
-        return isLongRunning;
     }
 } 

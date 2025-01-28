@@ -10,28 +10,31 @@ import java.util.List;
 import java.util.Map;
 import java.util.jar.JarFile;
 
-import com.terminal.sdk.Command;
-import com.terminal.sdk.CommandCategory;
-import com.terminal.sdk.CommandInfo;
-import com.terminal.sdk.EventManager;
-import com.terminal.sdk.EventType;
-import com.terminal.sdk.Logger;
-import com.terminal.sdk.TerminalEvent;
-import com.terminal.sdk.TerminalPlugin;
+import com.terminal.sdk.core.Command;
+import com.terminal.sdk.core.CommandCategory;
+import com.terminal.sdk.core.CommandInfo;
+import com.terminal.sdk.events.EventManager;
+import com.terminal.sdk.events.EventType;
+import com.terminal.sdk.events.TerminalEvent;
+import com.terminal.sdk.plugins.TerminalPlugin;
+import com.terminal.sdk.services.IPluginManager;
+import com.terminal.sdk.system.Logger;
 
-public class PluginManager {
+public class PluginManager implements IPluginManager {
     private static PluginManager instance;
     private final Map<String, TerminalPlugin> plugins;
     private final Map<String, CommandInfo> pluginCommands;
     private final Map<String, Map<String, Object>> pluginConfigs;
     private final String pluginsDirectory;
     private final String pluginsDir = "content/plugins";
+    private final EventManager eventManager;
 
     private PluginManager() {
         this.plugins = new HashMap<>();
         this.pluginCommands = new HashMap<>();
         this.pluginConfigs = new HashMap<>();
         this.pluginsDirectory = "content/plugins";
+        this.eventManager = EventManager.getInstance();
         createPluginsDirectory();
     }
 
@@ -49,6 +52,7 @@ public class PluginManager {
         }
     }
 
+    @Override
     public void loadPlugins() {
         File directory = new File(pluginsDirectory);
         Logger.info(getClass().getSimpleName(), "Поиск плагинов в директории: " + directory.getAbsolutePath());
@@ -126,7 +130,7 @@ public class PluginManager {
 
         Map<String, Command> commands = plugin.getCommands();
         for (Map.Entry<String, Command> entry : commands.entrySet()) {
-            CommandInfo commandInfo = new CommandInfo(entry.getKey(), entry.getValue(), CommandCategory.PLUGIN);
+            CommandInfo commandInfo = new CommandInfo(entry.getKey(), entry.getValue().getDescription(), CommandCategory.PLUGINS.name(), entry.getValue());
             pluginCommands.put(entry.getKey(), commandInfo);
             Logger.info(getClass().getSimpleName(), "Зарегистрирована новая команда: " + entry.getKey());
         }
@@ -142,6 +146,7 @@ public class PluginManager {
         return missingDependencies;
     }
 
+    @Override
     public void updatePluginConfig(String pluginName, Map<String, Object> newConfig) {
         TerminalPlugin plugin = plugins.get(pluginName);
         if (plugin != null) {
@@ -151,20 +156,12 @@ public class PluginManager {
         }
     }
 
+    @Override
     public Map<String, Object> getPluginConfig(String pluginName) {
         return Collections.unmodifiableMap(pluginConfigs.getOrDefault(pluginName, new HashMap<>()));
     }
 
-    public void onCommandExecuted(String command, String[] args) {
-        plugins.values().forEach(plugin -> {
-            try {
-                plugin.onCommandExecuted(command, args);
-            } catch (Exception e) {
-                plugin.onError(e);
-            }
-        });
-    }
-
+    @Override
     public void unloadPlugin(String pluginName) {
         TerminalPlugin plugin = plugins.remove(pluginName);
         if (plugin != null) {
@@ -172,22 +169,22 @@ public class PluginManager {
             
             pluginCommands.entrySet().removeIf(entry -> 
                 plugin.getCommands().containsKey(entry.getKey()));
-
-            EventManager.getInstance().emit(
-                new TerminalEvent(EventType.STATE_CHANGED, 
-                    "Plugin unloaded: " + plugin.getName())
-            );
+            
+            eventManager.emit(new TerminalEvent(EventType.STATE_CHANGED, "Plugin unloaded: " + plugin.getName()));
         }
     }
 
+    @Override
     public Map<String, CommandInfo> getPluginCommands() {
         return Collections.unmodifiableMap(pluginCommands);
     }
 
+    @Override
     public List<TerminalPlugin> getLoadedPlugins() {
         return new ArrayList<>(plugins.values());
     }
 
+    @Override
     public void shutdown() {
         for (TerminalPlugin plugin : plugins.values()) {
             try {
@@ -200,6 +197,7 @@ public class PluginManager {
         pluginCommands.clear();
     }
 
+    @Override
     public void registerPluginTheme(String pluginName, String themeContent) {
         ThemeManager.getInstance().registerPluginTheme(pluginName, themeContent);
     }

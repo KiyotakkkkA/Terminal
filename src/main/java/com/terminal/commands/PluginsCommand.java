@@ -6,7 +6,6 @@ import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.Font;
 import java.awt.GridLayout;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
@@ -24,8 +23,9 @@ import javax.swing.table.TableColumnModel;
 import javax.swing.text.Style;
 import javax.swing.text.StyledDocument;
 
-import com.terminal.sdk.Logger;
-import com.terminal.sdk.TerminalPlugin;
+import com.terminal.sdk.plugins.TerminalPlugin;
+import com.terminal.sdk.system.CurrentPathHolder;
+import com.terminal.sdk.system.Logger;
 import com.terminal.utils.OutputFormatter;
 import com.terminal.utils.PluginManager;
 
@@ -39,8 +39,11 @@ public class PluginsCommand extends AbstractCommand {
     private static final Font FONT = new Font("JetBrains Mono", Font.PLAIN, 12);
     private static final Font HEADER_FONT = new Font("JetBrains Mono", Font.BOLD, 12);
 
-    public PluginsCommand(StyledDocument doc, Style style) {
-        super(doc, style);
+    private final CurrentPathHolder pathHolder;
+
+    public PluginsCommand(StyledDocument doc, Style style, CurrentPathHolder pathHolder) {
+        super(doc, style, pathHolder, "plugins", "Управление плагинами", "PLUGINS");
+        this.pathHolder = pathHolder;
     }
 
     @Override
@@ -49,7 +52,7 @@ public class PluginsCommand extends AbstractCommand {
     }
 
     @Override
-    public void execute(String... args) {
+    public void executeCommand(String... args) {
         try {
             if (args.length > 0) {
                 TerminalPlugin plugin = findPlugin(args[0]);
@@ -165,9 +168,9 @@ public class PluginsCommand extends AbstractCommand {
         JTable table = createTable(model);
         
         plugin.getCommands().forEach((name, cmd) -> {
-            List<String> subcommands = cmd.getSuggestions(new String[0]);
-            String subcommandsStr = subcommands.isEmpty() ? "-" : 
-                subcommands.stream().collect(java.util.stream.Collectors.joining(", "));
+            String[] subcommands = cmd.getSuggestions(new String[0]);
+            String subcommandsStr = subcommands.length == 0 ? "-" : 
+                String.join(", ", subcommands);
             
             model.addRow(new Object[]{
                 name,
@@ -288,21 +291,14 @@ public class PluginsCommand extends AbstractCommand {
     }
 
     @Override
-    public List<String> getSuggestions(String[] args) {
+    public String[] getSuggestions(String[] args) {
         if (args.length == 1) {
             String prefix = args[0].toLowerCase();
             return PluginManager.getInstance().getLoadedPlugins().stream()
                 .map(TerminalPlugin::getName)
                 .filter(name -> name.toLowerCase().startsWith(prefix))
-                .collect(java.util.stream.Collectors.toList());
+                .toArray(String[]::new);
         }
-        return Collections.emptyList();
-    }
-
-    private void handleUninstall(String pluginName) {
-        TerminalPlugin plugin = findPlugin(pluginName);
-        if (plugin == null) {
-            Logger.error(getClass().getSimpleName(), "Плагин не найден: " + pluginName);
-        }
+        return new String[0];
     }
 } 

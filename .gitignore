@@ -10,6 +10,7 @@
 /build/
 /out/
 /bin/
+/tools/
 
 # Файлы IDE
 .idea/
@@ -28,13 +29,16 @@ logs.txt
 *.temp
 *.swp
 *~
-tasks.txt
+*.txt
 content/data/*.json
+version.properties
 
 # Файлы операционной системы
 .DS_Store
 Thumbs.db
 desktop.ini
+*.exe
+*.bat
 
 # Файлы конфигурации
 content/user.json

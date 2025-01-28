@@ -16,14 +16,14 @@ import org.xbill.DNS.ReverseMap;
 import org.xbill.DNS.TXTRecord;
 import org.xbill.DNS.Type;
 
-import com.terminal.sdk.CurrentPathHolder;
+import com.terminal.sdk.system.CurrentPathHolder;
 import com.terminal.utils.OutputFormatter;
 
 public class DnsCommand extends AbstractCommand {
     private final CurrentPathHolder pathHolder;
 
     public DnsCommand(StyledDocument doc, Style style, CurrentPathHolder pathHolder) {
-        super(doc, style);
+        super(doc, style, null, "dns", "DNS-запросы к доменным именам", "NETWORK");
         this.pathHolder = pathHolder;
     }
 
@@ -37,7 +37,7 @@ public class DnsCommand extends AbstractCommand {
     }
 
     @Override
-    public void execute(String... args) {
+    public void executeCommand(String... args) {
         try {
             if (args.length < 2) {
                 OutputFormatter.printBoxedHeader(doc, style, "Использование: dns <операция> <домен>");

@@ -17,13 +17,15 @@ import com.terminal.utils.OutputFormatter;
 public class PortScanCommand extends AbstractCommand {
     private static final int TIMEOUT = 200;
     private static final int THREAD_POOL_SIZE = 50;
+    private final Style promptStyle;
 
-    public PortScanCommand(StyledDocument doc, Style style) {
-        super(doc, style);
+    public PortScanCommand(StyledDocument doc, Style style, Style promptStyle) {
+        super(doc, style, null, "scan", "Сканирование портов", "NETWORK");
+        this.promptStyle = promptStyle;
     }
 
     @Override
-    public void execute(String... args) {
+    public void executeCommand(String... args) {
         try {
             if (args.length < 1) {
                 showUsage();
@@ -40,10 +42,11 @@ public class PortScanCommand extends AbstractCommand {
                 endPort = ports.length > 1 ? Integer.parseInt(ports[1]) : startPort;
             }
 
-            OutputFormatter.printBoxedHeader(doc, style, "Сканирование портов");
-            OutputFormatter.printBoxedLine(doc, style, "Хост: " + host);
-            OutputFormatter.printBoxedLine(doc, style, String.format("Диапазон портов: %d-%d", startPort, endPort));
-            OutputFormatter.printBoxedLine(doc, style, "");
+            OutputFormatter.printBeautifulSection(doc, promptStyle, "СКАНИРОВАНИЕ ПОРТОВ");
+            OutputFormatter.printBeautifulSection(doc, style, "Хост: " + host);
+            
+            String[] headers = {"Порт", "Статус", "Сервис"};
+            List<String[]> dataList = new ArrayList<>();
 
             ExecutorService executor = Executors.newFixedThreadPool(THREAD_POOL_SIZE);
             List<Future<PortScanResult>> futures = new ArrayList<>();
@@ -56,22 +59,23 @@ public class PortScanCommand extends AbstractCommand {
             executor.shutdown();
             executor.awaitTermination(30, TimeUnit.SECONDS);
 
-            boolean foundOpen = false;
             for (Future<PortScanResult> future : futures) {
                 PortScanResult result = future.get();
                 if (result.isOpen) {
-                    foundOpen = true;
-                    OutputFormatter.printBoxedLine(doc, style, 
-                        String.format("Порт %d: открыт (%s)", 
-                            result.port, result.service != null ? result.service : "неизвестный сервис"));
+                    dataList.add(new String[]{
+                        String.valueOf(result.port),
+                        "открыт",
+                        result.service != null ? result.service : "неизвестный сервис"
+                    });
                 }
             }
 
-            if (!foundOpen) {
-                OutputFormatter.printBoxedLine(doc, style, "Открытых портов не найдено");
+            if (dataList.isEmpty()) {
+                OutputFormatter.printBeautifulSection(doc, style, "Открытых портов не найдено");
+            } else {
+                String[][] data = dataList.toArray(new String[0][]);
+                OutputFormatter.printBeautifulTable(doc, style, headers, data);
             }
-
-            OutputFormatter.printBoxedFooter(doc, style);
 
         } catch (Exception e) {
             try {

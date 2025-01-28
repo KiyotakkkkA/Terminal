@@ -9,16 +9,18 @@ import javax.swing.text.StyledDocument;
 import com.terminal.utils.OutputFormatter;
 
 public class ProcessAnalyzerCommand extends AbstractCommand {
+    private final Style promptStyle;
 
-    public ProcessAnalyzerCommand(StyledDocument doc, Style style) {
-        super(doc, style);
+    public ProcessAnalyzerCommand(StyledDocument doc, Style style, Style promptStyle) {
+        super(doc, style, null, "procanalyze", "Анализ процессов", "SYSTEM");
+        this.promptStyle = promptStyle;
     }
 
     @Override
-    public void execute(String... args) {
+    public void executeCommand(String... args) {
         try {
-            OutputFormatter.printBoxedHeader(doc, style, "Анализ процессов");
-            OutputFormatter.printBoxedLine(doc, style, "Системная информация:");
+            OutputFormatter.printBoxedHeader(doc, promptStyle, "Анализ процессов");
+            OutputFormatter.printBoxedLine(doc, promptStyle, "Системная информация:");
             OutputFormatter.printBoxedLine(doc, style, "");
 
             Runtime runtime = Runtime.getRuntime();
@@ -90,48 +92,6 @@ public class ProcessAnalyzerCommand extends AbstractCommand {
                 ex.printStackTrace();
             }
         }
-    }
-
-    private void analyzeAllProcesses() throws Exception {
-        OutputFormatter.printBoxedHeader(doc, style, "Все процессы");
-        
-        String command = System.getProperty("os.name").toLowerCase().contains("windows")
-            ? "tasklist /V /FO LIST"
-            : "ps aux --forest";
-
-        Process process = Runtime.getRuntime().exec(command);
-        BufferedReader reader = new BufferedReader(
-            new InputStreamReader(process.getInputStream(), 
-                System.getProperty("os.name").toLowerCase().contains("windows") ? "CP866" : "UTF-8")
-        );
-
-        String line;
-        while ((line = reader.readLine()) != null) {
-            OutputFormatter.printBoxedLine(doc, style, line);
-        }
-        
-        OutputFormatter.printBoxedFooter(doc, style);
-    }
-
-    private void analyzeSpecificProcess(String pid) throws Exception {
-        OutputFormatter.printBoxedHeader(doc, style, "Анализ процесса " + pid);
-        
-        String command = System.getProperty("os.name").toLowerCase().contains("windows")
-            ? String.format("wmic process where ProcessId=%s get CommandLine,CreationDate,KernelModeTime,UserModeTime,ThreadCount,Priority,WorkingSetSize /format:list", pid)
-            : String.format("ps -p %s -o pid,ppid,cmd,etime,time,nice,pcpu,pmem,rss,vsz --forest", pid);
-
-        Process process = Runtime.getRuntime().exec(command);
-        BufferedReader reader = new BufferedReader(
-            new InputStreamReader(process.getInputStream(), 
-                System.getProperty("os.name").toLowerCase().contains("windows") ? "CP866" : "UTF-8")
-        );
-
-        String line;
-        while ((line = reader.readLine()) != null) {
-            OutputFormatter.printBoxedLine(doc, style, line);
-        }
-        
-        OutputFormatter.printBoxedFooter(doc, style);
     }
 
     @Override
