@@ -2,3 +2,4 @@ com\terminal\launcher\Launcher$1.class
 com\terminal\launcher\Launcher.class
 com\terminal\launcher\Launcher$GithubRelease.class
 com\terminal\launcher\Launcher$Asset.class
+com\terminal\launcher\Launcher$GithubContent.class

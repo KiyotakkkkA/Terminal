@@ -40,6 +40,7 @@ import com.google.gson.annotations.SerializedName;
 public class Launcher extends JFrame {
     private static final Logger LOGGER = Logger.getLogger(Launcher.class.getName());
     private static final String GITHUB_API_URL = "https://api.github.com/repos/KiyotakkkkA/Terminal/releases";
+    private static final String GITHUB_CONTENTS_URL = "https://api.github.com/repos/KiyotakkkkA/Terminal/contents/";
     private static final String VERSION_FILE = "version.properties";
     private static final String CONFIG_FILE = "launcher.properties";
     
@@ -57,6 +58,17 @@ public class Launcher extends JFrame {
         
         @SerializedName("browser_download_url")
         private String downloadUrl;
+    }
+
+    private static class GithubContent {
+        @SerializedName("name")
+        private String name;
+        
+        @SerializedName("download_url")
+        private String downloadUrl;
+        
+        @SerializedName("type")
+        private String type;
     }
     
     private JTextField pathField;
@@ -257,39 +269,23 @@ public class Launcher extends JFrame {
 
     private void downloadAndInstall() {
         try (CloseableHttpClient client = HttpClients.createDefault()) {
+            // Создаем необходимые директории
+            Files.createDirectories(Paths.get(installPath, "lib"));
+            Files.createDirectories(Paths.get(installPath, "content", "plugins"));
+            
+            // Скачиваем содержимое папки lib
+            downloadDirectoryContents(client, "lib", Paths.get(installPath, "lib"));
+            
+            // Скачиваем содержимое папки content/plugins
+            downloadDirectoryContents(client, "content/plugins", Paths.get(installPath, "content", "plugins"));
+            
+            // Получаем информацию о последнем релизе для версии
             HttpGet request = new HttpGet(GITHUB_API_URL);
             request.addHeader("Accept", "application/vnd.github.v3+json");
-            
             String response = EntityUtils.toString(client.execute(request).getEntity());
             GithubRelease[] releases = new Gson().fromJson(response, GithubRelease[].class);
             
             if (releases.length > 0) {
-                // Создаем необходимые директории
-                Files.createDirectories(Paths.get(installPath, "lib"));
-                Files.createDirectories(Paths.get(installPath, "content", "plugins"));
-                
-                // Скачиваем основные JAR файлы
-                for (Asset asset : releases[0].assets) {
-                    String fileName = asset.name.toLowerCase();
-                    Path targetPath;
-                    
-                    if (fileName.startsWith("terminal") && !fileName.contains("sdk")) {
-                        targetPath = Paths.get(installPath, "lib", "terminal.jar");
-                    } else if (fileName.contains("sdk")) {
-                        targetPath = Paths.get(installPath, "lib", "terminal-sdk.jar");
-                    } else if (fileName.endsWith(".jar")) {
-                        targetPath = Paths.get(installPath, "content", "plugins", asset.name);
-                    } else {
-                        continue;
-                    }
-                    
-                    // Скачиваем файл
-                    try (InputStream in = new URL(asset.downloadUrl).openStream()) {
-                        Files.copy(in, targetPath, StandardCopyOption.REPLACE_EXISTING);
-                        LOGGER.info("Downloaded: " + targetPath);
-                    }
-                }
-                
                 // Создаем version file
                 Properties versionProps = new Properties();
                 versionProps.setProperty("version", releases[0].tagName);
@@ -314,6 +310,26 @@ public class Launcher extends JFrame {
                     "Ошибка",
                     JOptionPane.ERROR_MESSAGE);
             });
+        }
+    }
+
+    private void downloadDirectoryContents(CloseableHttpClient client, String directory, Path targetDir) throws IOException {
+        HttpGet request = new HttpGet(GITHUB_CONTENTS_URL + directory);
+        request.addHeader("Accept", "application/vnd.github.v3+json");
+        
+        String response = EntityUtils.toString(client.execute(request).getEntity());
+        GithubContent[] contents = new Gson().fromJson(response, GithubContent[].class);
+        
+        for (GithubContent content : contents) {
+            if ("file".equals(content.type) && content.name.endsWith(".jar")) {
+                Path targetPath = targetDir.resolve(content.name);
+                
+                // Скачиваем файл
+                try (InputStream in = new URL(content.downloadUrl).openStream()) {
+                    Files.copy(in, targetPath, StandardCopyOption.REPLACE_EXISTING);
+                    LOGGER.info("Downloaded: " + targetPath);
+                }
+            }
         }
     }
 
