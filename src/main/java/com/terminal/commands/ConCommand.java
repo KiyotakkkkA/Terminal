@@ -6,25 +6,31 @@ import java.net.NetworkInterface;
 import java.util.ArrayList;
 import java.util.Enumeration;
 import java.util.List;
+import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.logging.Logger;
 
+import javax.swing.SwingUtilities;
 import javax.swing.text.Style;
 import javax.swing.text.StyledDocument;
 
 import com.terminal.sdk.AbstractAsyncCommand;
+import com.terminal.sdk.services.TerminalService;
 import com.terminal.sdk.system.CurrentPathHolder;
 import com.terminal.utils.OutputFormatter;
 
 public class ConCommand extends AbstractAsyncCommand {
-    private static final int SCAN_TIMEOUT = 200;
+    private static final Logger LOGGER = Logger.getLogger(ConCommand.class.getName());
+    private static final int SCAN_TIMEOUT = 500;
     private static final int THREAD_POOL_SIZE = 50;
     private static final int EXECUTOR_TIMEOUT = 5;
     private final Style promptStyle;
     private volatile boolean isRunning = true;
+    private ExecutorService networkExecutor;
 
     public ConCommand(StyledDocument doc, Style style, Style promptStyle, CurrentPathHolder pathHolder) {
         super(doc, style, pathHolder);
@@ -33,88 +39,174 @@ public class ConCommand extends AbstractAsyncCommand {
 
     @Override
     public CompletableFuture<Void> executeAsync(String[] args) {
+        if (networkExecutor != null) {
+            cleanupResources();
+        }
+        resetInterrupted(); // Сбрасываем состояние прерывания перед новым запуском
         isRunning = true;
         output.startAnimation(FRAMES, FRAME_DELAY);
+        networkExecutor = Executors.newFixedThreadPool(THREAD_POOL_SIZE, r -> {
+            Thread t = new Thread(r);
+            t.setDaemon(true);
+            return t;
+        });
         
-        return CompletableFuture.runAsync(() -> {
+        CompletableFuture<Void> future = new CompletableFuture<>();
+        CompletableFuture.runAsync(() -> {
             try {
                 scanNetworkAsync();
+                if (!future.isDone()) {
+                    future.complete(null);
+                }
             } catch (Exception e) {
+                LOGGER.severe("Scan error: " + e.getMessage());
                 if (!isInterrupted()) {
                     output.completeWithError(e.getMessage());
                 }
-            } finally {
-                isRunning = false;
-                if (!isInterrupted()) {
-                    output.complete();
+                if (!future.isDone()) {
+                    future.completeExceptionally(e);
                 }
+            } finally {
+                cleanupResources();
+                SwingUtilities.invokeLater(() -> {
+                    TerminalService.getInstance().getTerminalPanel().unlock();
+                });
             }
         });
+        return future;
+    }
+
+    @Override
+    public void interrupt() {
+        isRunning = false;
+        if (networkExecutor != null) {
+            try {
+                // Отменяем все задачи немедленно
+                networkExecutor.shutdownNow();
+                
+                // Ждем завершения в отдельном потоке
+                CompletableFuture.runAsync(() -> {
+                    try {
+                        cleanupResources();
+                    } catch (Exception e) {
+                        LOGGER.severe("Error during interrupt: " + e.getMessage());
+                    } finally {
+                        SwingUtilities.invokeLater(() -> {
+                            // Сбрасываем состояние команды
+                            networkExecutor = null;
+                            isRunning = false;
+                            resetInterrupted();
+                            // Разблокируем терминал
+                            TerminalService.getInstance().getTerminalPanel().unlock();
+                        });
+                    }
+                });
+            } catch (Exception e) {
+                LOGGER.severe("Error during interrupt: " + e.getMessage());
+            }
+        }
+        super.interrupt();
+    }
+
+    private void cleanupResources() {
+        isRunning = false;
+        if (networkExecutor != null && !networkExecutor.isShutdown()) {
+            try {
+                // Отменяем все задачи
+                List<Runnable> pendingTasks = networkExecutor.shutdownNow();
+                LOGGER.info("Cancelling " + pendingTasks.size() + " pending tasks");
+                
+                // Ждем завершения всех задач с несколькими попытками
+                for (int attempt = 0; attempt < 3; attempt++) {
+                    if (networkExecutor.awaitTermination(1, TimeUnit.SECONDS)) {
+                        LOGGER.info("Network executor terminated successfully");
+                        break;
+                    }
+                    if (attempt < 2) {
+                        LOGGER.warning("Attempt " + (attempt + 1) + " to terminate executor failed, trying again...");
+                        networkExecutor.shutdownNow();
+                    }
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                networkExecutor.shutdownNow();
+            } catch (Exception e) {
+                LOGGER.severe("Error during executor shutdown: " + e.getMessage());
+                networkExecutor.shutdownNow();
+            } finally {
+                networkExecutor = null;
+            }
+        }
+        
+        if (!isInterrupted()) {
+            output.complete();
+        }
     }
 
     @Override
     protected void executeCommand(String... args) throws Exception {
         CompletableFuture<Void> future = executeAsync(args);
-        Thread.sleep(100);
+        try {
+            future.get(30, TimeUnit.SECONDS);
+        } catch (Exception e) {
+            LOGGER.severe("Command execution error: " + e.getMessage());
+            interrupt();
+            throw e;
+        }
     }
 
     private void scanNetworkAsync() throws Exception {
         if (!isRunning) return;
         
-        ExecutorService networkExecutor = Executors.newFixedThreadPool(THREAD_POOL_SIZE);
-        try {
-            List<NetworkInterface> activeInterfaces = new ArrayList<>();
-            Enumeration<NetworkInterface> interfaces = NetworkInterface.getNetworkInterfaces();
-            
-            while (interfaces.hasMoreElements() && isRunning) {
-                NetworkInterface ni = interfaces.nextElement();
-                if (ni.isUp() && !ni.isLoopback()) {
-                    activeInterfaces.add(ni);
-                    collectAndDisplayInterfaceInfo(ni, activeInterfaces.size());
-                }
+        List<NetworkInterface> activeInterfaces = new ArrayList<>();
+        Enumeration<NetworkInterface> interfaces = NetworkInterface.getNetworkInterfaces();
+        
+        while (interfaces.hasMoreElements() && isRunning) {
+            NetworkInterface ni = interfaces.nextElement();
+            if (ni.isUp() && !ni.isLoopback()) {
+                activeInterfaces.add(ni);
+                collectAndDisplayInterfaceInfo(ni, activeInterfaces.size());
             }
+        }
 
-            if (!isRunning) return;
+        if (!isRunning) return;
+        
+        InetAddress localhost = InetAddress.getLocalHost();
+        String[][] localhostData = {
+            {"Имя хоста", localhost.getHostName()},
+            {"IP адрес", localhost.getHostAddress()},
+            {"Каноническое имя", localhost.getCanonicalHostName()}
+        };
+        String[] headers = {"Параметр", "Значение"};
+        OutputFormatter.printBeautifulSection(doc, promptStyle, "ЛОКАЛЬНЫЙ ХОСТ");
+        OutputFormatter.printBeautifulTable(doc, style, headers, localhostData);
+
+        if (!isRunning) return;
+
+        for (NetworkInterface ni : activeInterfaces) {
+            if (!isRunning) break;
             
-            InetAddress localhost = InetAddress.getLocalHost();
-            String[][] localhostData = {
-                {"Имя хоста", localhost.getHostName()},
-                {"IP адрес", localhost.getHostAddress()},
-                {"Каноническое имя", localhost.getCanonicalHostName()}
-            };
-            String[] headers = {"Параметр", "Значение"};
-            OutputFormatter.printBeautifulSection(doc, promptStyle, "ЛОКАЛЬНЫЙ ХОСТ");
-            OutputFormatter.printBeautifulTable(doc, style, headers, localhostData);
-
-            if (!isRunning) return;
-
-            for (NetworkInterface ni : activeInterfaces) {
+            for (InterfaceAddress addr : ni.getInterfaceAddresses()) {
                 if (!isRunning) break;
                 
-                for (InterfaceAddress addr : ni.getInterfaceAddresses()) {
+                if (addr.getAddress().isSiteLocalAddress()) {
+                    String subnet = addr.getAddress().getHostAddress();
+                    subnet = subnet.substring(0, subnet.lastIndexOf(".") + 1);
+                    
+                    String[][] networkData = {
+                        {"Сеть", subnet + "0/" + addr.getNetworkPrefixLength()},
+                        {"Маска подсети", calculateNetmask(addr.getNetworkPrefixLength())},
+                        {"Broadcast", addr.getBroadcast() != null ? addr.getBroadcast().getHostAddress() : "Недоступен"}
+                    };
+                    OutputFormatter.printBeautifulSection(doc, promptStyle, "ИНФОРМАЦИЯ О СЕТИ - " + subnet + "0/" + addr.getNetworkPrefixLength());
+                    OutputFormatter.printBeautifulTable(doc, style, headers, networkData);
+
                     if (!isRunning) break;
                     
-                    if (addr.getAddress().isSiteLocalAddress()) {
-                        String subnet = addr.getAddress().getHostAddress();
-                        subnet = subnet.substring(0, subnet.lastIndexOf(".") + 1);
-                        
-                        String[][] networkData = {
-                            {"Сеть", subnet + "0/" + addr.getNetworkPrefixLength()},
-                            {"Маска подсети", calculateNetmask(addr.getNetworkPrefixLength())},
-                            {"Broadcast", addr.getBroadcast() != null ? addr.getBroadcast().getHostAddress() : "Недоступен"}
-                        };
-                        OutputFormatter.printBeautifulSection(doc, promptStyle, "ИНФОРМАЦИЯ О СЕТИ - " + subnet + "0/" + addr.getNetworkPrefixLength());
-                        OutputFormatter.printBeautifulTable(doc, style, headers, networkData);
-
-                        if (!isRunning) break;
-                        
-                        OutputFormatter.printBeautifulSection(doc, promptStyle, "СКАНИРОВАНИЕ СЕТИ");
-                        scanAndDisplayDevices(subnet);
-                    }
+                    OutputFormatter.printBeautifulSection(doc, promptStyle, "СКАНИРОВАНИЕ СЕТИ");
+                    scanAndDisplayDevices(subnet);
                 }
             }
-        } finally {
-            networkExecutor.shutdownNow();
         }
     }
 
@@ -165,31 +257,33 @@ public class ConCommand extends AbstractAsyncCommand {
         List<String[]> foundDevices = new ArrayList<>();
 
         try {
-            InetAddress broadcast = InetAddress.getByName(subnet + "255");
-            futures.add(CompletableFuture.supplyAsync(() -> checkHost(broadcast)));
-
-            for (int i = 1; i <= 5 && isRunning; i++) {
-                final String host = subnet + i;
-                futures.add(CompletableFuture.supplyAsync(() -> {
-                    try {
-                        return checkHost(InetAddress.getByName(host));
-                    } catch (Exception e) {
-                        return null;
-                    }
-                }));
+            if (networkExecutor == null || networkExecutor.isShutdown()) {
+                LOGGER.warning("Network executor is not available");
+                return;
             }
 
-            for (int i = 6; i < 255 && isRunning; i++) {
+            List<Callable<String[]>> scanTasks = new ArrayList<>();
+            
+            // Добавляем broadcast и шлюз
+            scanTasks.add(() -> checkHost(InetAddress.getByName(subnet + "255")));
+            scanTasks.add(() -> checkHost(InetAddress.getByName(subnet + "1")));
+
+            // Остальные адреса (2-254)
+            for (int i = 2; i < 255; i++) {
+                if (!isRunning) break;
                 final String host = subnet + i;
-                futures.add(CompletableFuture.supplyAsync(() -> {
-                    try {
-                        return checkHost(InetAddress.getByName(host));
-                    } catch (Exception e) {
-                        return null;
-                    }
-                }));
+                scanTasks.add(() -> {
+                    if (!isRunning) return null;
+                    return checkHost(InetAddress.getByName(host));
+                });
             }
 
+            // Запускаем все задачи одновременно
+            if (isRunning) {
+                futures = networkExecutor.invokeAll(scanTasks, SCAN_TIMEOUT * 5, TimeUnit.MILLISECONDS);
+            }
+
+            // Собираем результаты
             for (Future<String[]> future : futures) {
                 if (!isRunning) break;
                 try {
@@ -197,7 +291,9 @@ public class ConCommand extends AbstractAsyncCommand {
                     if (result != null) {
                         foundDevices.add(result);
                     }
-                } catch (Exception ignored) {}
+                } catch (Exception ignored) {
+                    // Пропускаем недоступные хосты
+                }
             }
 
             if (!isRunning) return;
@@ -212,19 +308,25 @@ public class ConCommand extends AbstractAsyncCommand {
             } else {
                 OutputFormatter.printBeautifulMessage(doc, style, "Устройства не найдены");
             }
-        } finally {
+        } catch (Exception e) {
+            if (!isInterrupted()) {
+                LOGGER.severe("Error scanning devices: " + e.getMessage());
+                throw e;
+            }
         }
     }
 
     private String[] checkHost(InetAddress address) {
+        if (!isRunning) return null;
         try {
-            if (address.isReachable(SCAN_TIMEOUT)) {
+            boolean isReachable = address.isReachable(SCAN_TIMEOUT);
+            if (isReachable) {
                 String hostname = address.getCanonicalHostName();
                 return new String[]{
                     address.getHostAddress(),
                     hostname.equals(address.getHostAddress()) ? "неизвестно" : hostname,
                     address.getHostName(),
-                    address.isReachable(SCAN_TIMEOUT) ? "да" : "нет",
+                    "да",
                     address.isLoopbackAddress() ? "да" : "нет",
                     address.isSiteLocalAddress() ? "да" : "нет",
                     address.isLinkLocalAddress() ? "да" : "нет"
@@ -257,12 +359,6 @@ public class ConCommand extends AbstractAsyncCommand {
     @Override
     public String getDescription() {
         return "информация о сетевых подключениях";
-    }
-
-    @Override
-    public void interrupt() {
-        isRunning = false;
-        super.interrupt();
     }
 
     @Override

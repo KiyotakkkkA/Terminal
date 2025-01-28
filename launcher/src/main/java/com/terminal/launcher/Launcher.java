@@ -39,8 +39,8 @@ import com.google.gson.annotations.SerializedName;
 
 public class Launcher extends JFrame {
     private static final Logger LOGGER = Logger.getLogger(Launcher.class.getName());
-    private static final String GITHUB_API_URL = "https://api.github.com/repos/KiyotakkkkA/Terminal/releases";
-    private static final String GITHUB_CONTENTS_URL = "https://api.github.com/repos/KiyotakkkkA/Terminal/contents/";
+    private static final String GITHUB_API_URL = "https://api.github.com/repos/KiyotakkkkA/Terminal";
+    private static final String GITHUB_RAW_URL = "https://raw.githubusercontent.com/KiyotakkkkA/Terminal/master";
     private static final String VERSION_FILE = "version.properties";
     private static final String CONFIG_FILE = "launcher.properties";
     
@@ -223,17 +223,14 @@ public class Launcher extends JFrame {
 
     private boolean isUpdateAvailable(String currentVersion) {
         try (CloseableHttpClient client = HttpClients.createDefault()) {
-            HttpGet request = new HttpGet(GITHUB_API_URL);
+            HttpGet request = new HttpGet(GITHUB_API_URL + "/commits/master");
             request.addHeader("Accept", "application/vnd.github.v3+json");
             
             String response = EntityUtils.toString(client.execute(request).getEntity());
-            GithubRelease[] releases = new Gson().fromJson(response, GithubRelease[].class);
+            CommitResponse commit = new Gson().fromJson(response, CommitResponse.class);
+            String latestCommit = commit.sha.substring(0, 7);
             
-            if (releases.length > 0) {
-                // Берем первый релиз из списка (самый новый)
-                return !currentVersion.equals(releases[0].tagName);
-            }
-            return false;
+            return !currentVersion.equals(latestCommit);
         } catch (IOException e) {
             LOGGER.warning("Error checking for updates: " + e.getMessage());
             return false;
@@ -272,35 +269,34 @@ public class Launcher extends JFrame {
             // Создаем необходимые директории
             Files.createDirectories(Paths.get(installPath, "lib"));
             Files.createDirectories(Paths.get(installPath, "content", "plugins"));
-            
-            // Скачиваем содержимое папки lib
-            downloadDirectoryContents(client, "lib", Paths.get(installPath, "lib"));
-            
-            // Скачиваем содержимое папки content/plugins
-            downloadDirectoryContents(client, "content/plugins", Paths.get(installPath, "content", "plugins"));
-            
-            // Получаем информацию о последнем релизе для версии
-            HttpGet request = new HttpGet(GITHUB_API_URL);
+
+            // Получаем информацию о последнем коммите для версии
+            HttpGet request = new HttpGet(GITHUB_API_URL + "/commits/master");
             request.addHeader("Accept", "application/vnd.github.v3+json");
             String response = EntityUtils.toString(client.execute(request).getEntity());
-            GithubRelease[] releases = new Gson().fromJson(response, GithubRelease[].class);
+            CommitResponse commit = new Gson().fromJson(response, CommitResponse.class);
+            String version = commit.sha.substring(0, 7); // Используем первые 7 символов SHA коммита
+
+            // Скачиваем файлы из lib
+            downloadDirectoryContents(client, "lib", Paths.get(installPath, "lib"));
             
-            if (releases.length > 0) {
-                // Создаем version file
-                Properties versionProps = new Properties();
-                versionProps.setProperty("version", releases[0].tagName);
-                try (OutputStream out = new FileOutputStream(new File(installPath, VERSION_FILE))) {
-                    versionProps.store(out, "Terminal Version");
-                }
-                
-                SwingUtilities.invokeLater(() -> {
-                    statusLabel.setText("Установка завершена");
-                    JOptionPane.showMessageDialog(this,
-                        "Установка успешно завершена!",
-                        "Установка завершена",
-                        JOptionPane.INFORMATION_MESSAGE);
-                });
+            // Скачиваем файлы из content/plugins
+            downloadDirectoryContents(client, "content/plugins", Paths.get(installPath, "content", "plugins"));
+
+            // Создаем version file
+            Properties versionProps = new Properties();
+            versionProps.setProperty("version", version);
+            try (OutputStream out = new FileOutputStream(new File(installPath, VERSION_FILE))) {
+                versionProps.store(out, "Terminal Version");
             }
+
+            SwingUtilities.invokeLater(() -> {
+                statusLabel.setText("Установка завершена");
+                JOptionPane.showMessageDialog(this,
+                    "Установка успешно завершена!",
+                    "Установка завершена",
+                    JOptionPane.INFORMATION_MESSAGE);
+            });
         } catch (IOException e) {
             LOGGER.severe("Error during installation: " + e.getMessage());
             SwingUtilities.invokeLater(() -> {
@@ -314,7 +310,7 @@ public class Launcher extends JFrame {
     }
 
     private void downloadDirectoryContents(CloseableHttpClient client, String directory, Path targetDir) throws IOException {
-        HttpGet request = new HttpGet(GITHUB_CONTENTS_URL + directory);
+        HttpGet request = new HttpGet(GITHUB_API_URL + "/contents/" + directory);
         request.addHeader("Accept", "application/vnd.github.v3+json");
         
         String response = EntityUtils.toString(client.execute(request).getEntity());
@@ -322,10 +318,11 @@ public class Launcher extends JFrame {
         
         for (GithubContent content : contents) {
             if ("file".equals(content.type) && content.name.endsWith(".jar")) {
+                // Скачиваем файл напрямую из raw URL
+                String rawUrl = GITHUB_RAW_URL + "/" + directory + "/" + content.name;
                 Path targetPath = targetDir.resolve(content.name);
                 
-                // Скачиваем файл
-                try (InputStream in = new URL(content.downloadUrl).openStream()) {
+                try (InputStream in = new URL(rawUrl).openStream()) {
                     Files.copy(in, targetPath, StandardCopyOption.REPLACE_EXISTING);
                     LOGGER.info("Downloaded: " + targetPath);
                 }
@@ -347,5 +344,10 @@ public class Launcher extends JFrame {
                 "Ошибка",
                 JOptionPane.ERROR_MESSAGE);
         }
+    }
+
+    private static class CommitResponse {
+        @SerializedName("sha")
+        private String sha;
     }
 } 
