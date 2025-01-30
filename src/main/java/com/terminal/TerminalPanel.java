@@ -439,6 +439,8 @@ public class TerminalPanel extends JPanel {
                 if (!commandHistory.contains(input.trim())) {
                     commandHistory.add(input.trim());
                     historyIndex = commandHistory.size();
+                    // Добавляем команду в боковую панель истории
+                    sidebarManager.addToHistory(input.trim());
                 }
                 
                 // Выполняем команду напрямую
